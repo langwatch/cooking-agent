@@ -36,9 +36,9 @@ class CookingAgent:
 
     @langwatch.trace(name="cooking_agent.chat")
     def chat(self, message: str) -> str:
-        langwatch.get_current_trace().update(
-            metadata={"tier": self.tier, "model": self.model_id}
-        )
+        trace = langwatch.telemetry.get_current_trace()
+        if trace is not None:
+            trace.update(metadata={"tier": self.tier, "model": self.model_id})
         response = self._agent.run(message)
         return response.content or ""
 
