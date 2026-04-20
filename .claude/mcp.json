@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "langwatch": {
+      "type": "http",
+      "url": "https://app.langwatch.ai/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${LANGWATCH_API_KEY}"
+      }
+    }
+  }
+}
