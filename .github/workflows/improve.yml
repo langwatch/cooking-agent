@@ -24,14 +24,14 @@ permissions:
 jobs:
   improve:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 15
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
       FLAGSMITH_ENVIRONMENT_KEY: ${{ secrets.FLAGSMITH_ENVIRONMENT_KEY }}
       FLAGSMITH_API_TOKEN: ${{ secrets.FLAGSMITH_API_TOKEN }}
       FLAGSMITH_PROJECT_ID: "37795"
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       FOCUS: ${{ inputs.focus }}
       DRY_RUN: ${{ inputs.dry_run }}
@@ -82,7 +82,7 @@ jobs:
 ## Focus hint from operator
 ${FOCUS}"
           fi
-          timeout 1800 claude \
+          timeout 780 claude \
             -p "$prompt" \
             --model claude-sonnet-4-5 \
             --permission-mode bypassPermissions \
