@@ -2,7 +2,7 @@
 name = "cooking-agent"
 version = "0.1.0"
 description = "Self-improving cooking agent — LangWatch × Flagsmith"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "agno>=0.2.0",
     "openai>=1.50.0",
