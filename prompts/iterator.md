@@ -37,7 +37,7 @@ Environment variables you can rely on:
    curl -s -H "Authorization: Token ${FLAGSMITH_API_TOKEN}" \
      "https://api.flagsmith.com/api/v1/projects/${FLAGSMITH_PROJECT_ID}/features/" | tee /tmp/flags.json
    ```
-5. If a UI exists under `ui/`, start it (`npm run dev` or similar) and run the `browser-qa` skill against it to gather UX observations.
+5. The app is a Next.js 15 frontend (`web/`) + FastAPI backend (`api/`). To gather UX observations, start both in the background (`uvicorn api.main:app --port 8000 &` and `cd web && npm install && npm run dev &`) and run the `browser-qa` skill against `http://localhost:3000`.
 
 ## Step 2 — Decide
 
@@ -46,7 +46,7 @@ Write a scoreboard to `.github/_auto_scoreboard.md` with at least three candidat
 - **Prompts** — rewrite a system prompt based on failure clusters.
 - **Scenarios** — add, modify, or prune scenarios to raise the quality bar.
 - **Agent code** — add a new agent, add tools, change orchestration, wire multimodal input, tune the model tier map, etc.
-- **UI** — scaffold or improve the web UI. If no UI exists yet, scaffolding a minimal Next.js chat page is a valid candidate.
+- **UI** — improve the Next.js 15 chat UI in `web/` (layout, components, accessibility, dietary-preference controls, error states, loading UX, etc.). The backend FastAPI lives in `api/main.py` and can also be extended.
 
 For each candidate, include: title, evidence (link trace IDs or quote failing scenario criteria), estimated impact (High/Med/Low), estimated risk (High/Med/Low), and `impact/risk` ranking. Pick the top row. If `FOCUS` is non-empty, weight toward candidates that match it.
 
@@ -74,7 +74,7 @@ Extend `agent/flags.py` to expose the new flag in the typed `Flags` dataclass. G
 Apply the change. Keep the diff tight and reviewable. Don't drive-by refactor unrelated code.
 
 If your change introduces new Python deps, add them to `pyproject.toml`.
-If it adds a UI, use Next.js 15 + shadcn/ui + Tailwind with dark default. Commit `ui/` and wire a `make ui` target.
+For UI changes, edit `web/` (Next.js 15 + TypeScript + Tailwind, dark default). For backend changes, edit `api/main.py` (FastAPI).
 
 ## Step 5 — Verify
 

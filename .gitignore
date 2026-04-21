@@ -14,3 +14,4 @@ build/
 .mypy_cache/
 .ruff_cache/
 traces_dump/
+image.png
