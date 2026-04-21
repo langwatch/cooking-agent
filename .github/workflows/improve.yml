@@ -1,0 +1,127 @@
+name: improve
+
+on:
+  workflow_dispatch:
+    inputs:
+      focus:
+        description: "Optional hint for what to focus on (e.g. 'dietary safety'). Leave blank for auto."
+        required: false
+        default: ""
+      dry_run:
+        description: "Plan only; don't open a PR"
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: auto-improve
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  improve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
+      FLAGSMITH_ENVIRONMENT_KEY: ${{ secrets.FLAGSMITH_ENVIRONMENT_KEY }}
+      FLAGSMITH_API_TOKEN: ${{ secrets.FLAGSMITH_API_TOKEN }}
+      FLAGSMITH_PROJECT_ID: "37795"
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      FOCUS: ${{ inputs.focus }}
+      DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "langwatch-improve-bot"
+          git config user.email "bot@langwatch.ai"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Bootstrap Claude Code + skills + MCP
+        run: bash scripts/bootstrap_ci_claude.sh
+
+      - name: Create iteration branch
+        id: branch
+        run: |
+          ts=$(date +%Y%m%d-%H%M%S)
+          branch="auto/improve-${ts}"
+          git checkout -b "$branch"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "ts=$ts" >> "$GITHUB_OUTPUT"
+
+      - name: Run the iterator (Claude Code, Sonnet 4.5)
+        id: iterate
+        run: |
+          set -e
+          prompt="$(cat prompts/iterator.md)"
+          if [ -n "$FOCUS" ]; then
+            prompt="${prompt}
+
+## Focus hint from operator
+${FOCUS}"
+          fi
+          timeout 780 claude \
+            -p "$prompt" \
+            --model claude-sonnet-4-5 \
+            --permission-mode bypassPermissions \
+            --output-format text \
+          || echo "iterator exited non-zero; continuing to PR gate"
+
+      - name: Stage + commit any changes
+        id: commit
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No changes produced."
+          else
+            git commit -m "auto: iteration ${{ steps.branch.outputs.ts }}"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push + open PR
+        if: steps.commit.outputs.changed == 'true' && inputs.dry_run == false
+        run: |
+          git push -u origin "${{ steps.branch.outputs.branch }}"
+          body_file=".github/_auto_pr_body.md"
+          if [ ! -f "$body_file" ]; then
+            printf '## Auto-iteration\n\nBranch: %s\n\nThe iterator did not produce a structured body. Inspect the diff.\n' \
+              "${{ steps.branch.outputs.branch }}" > "$body_file"
+          fi
+          title="$(head -n1 "$body_file" | sed 's/^# *//' | cut -c1-70)"
+          if [ -z "$title" ]; then title="auto: iteration ${{ steps.branch.outputs.ts }}"; fi
+          gh pr create --base main --head "${{ steps.branch.outputs.branch }}" \
+            --title "$title" \
+            --body-file "$body_file"
+
+      - name: Upload iteration artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iteration-${{ steps.branch.outputs.ts }}
+          path: |
+            .github/_auto_pr_body.md
+            .github/_auto_scoreboard.md
+          if-no-files-found: ignore
