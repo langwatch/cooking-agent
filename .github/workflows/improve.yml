@@ -30,7 +30,7 @@ permissions:
 jobs:
   improve:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
@@ -85,7 +85,7 @@ jobs:
           if [ -n "$FOCUS" ]; then
             prompt="${prompt}"$'\n\n'"## Focus hint from operator"$'\n'"${FOCUS}"
           fi
-          timeout 780 claude \
+          timeout 2400 claude \
             -p "$prompt" \
             --model claude-sonnet-4-6 \
             --permission-mode bypassPermissions \

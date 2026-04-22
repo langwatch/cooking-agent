@@ -6,6 +6,10 @@ You are operating inside a GitHub Actions run on the `langwatch/cooking-agent` r
 
 Always aim to make something better. Pick the single highest-impact change supported by real evidence from traces, scenario results, or code inspection. Do not ship speculative features. Do not attempt more than one change per run.
 
+## Speed
+
+Finish as fast as the work allows. You have a hard 40-minute budget — treat it as a ceiling, not a target. Skip optional exploration once you have enough evidence to pick a candidate. Prefer the smallest change that a reviewer will find credible over the most ambitious one. If two candidates are close on impact, pick the cheaper one to implement and verify. Do not pad the run with extra scenario loops, extra screenshots, or extra candidates beyond the required three. The workflow is only useful if it actually lands a PR — a timed-out run ships nothing.
+
 ## Latency expectations
 
 Many operations here are slow: scenario suites can run several minutes, LLM calls take 10-60 seconds each, and the FastAPI backend is hosted on Render's free tier — its first request after idle cold-starts and may take **60-90 seconds** to respond. Don't interpret a slow response as a hang or failure. Wait for the actual result before retrying or bailing out.
