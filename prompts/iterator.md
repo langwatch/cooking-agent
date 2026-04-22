@@ -164,7 +164,7 @@ If for any reason embedding in the PR body fails (e.g. the body generation step 
 ### Failure modes to watch for
 
 - **413 / "file too large"**: you exceeded 1 MB. Recompress, do not retry.
-- **Empty / non-JSON response**: the service may be rate-limiting or degraded. Retry once after 10s; if it still fails, note "img402 unavailable" in the PR body and commit the screenshot files into `.github/_auto_screenshots/` as a fallback so reviewers can still download them.
+- **Empty / non-JSON response**: the service may be rate-limiting or degraded. Retry once after 10s; if it still fails, put a prominent line at the top of the PR body: `@aryansharma28 img402 upload broken — screenshots committed to .github/_auto_screenshots/ instead`. The `@aryansharma28` mention triggers a GitHub email so the operator knows to check. Also commit the raw screenshot files into `.github/_auto_screenshots/` so reviewers can still download them.
 - **Never upload anything containing secrets, tokens, or user PII.** The URL is public and indexable.
 
 ### Retention
