@@ -6,6 +6,10 @@ You are operating inside a GitHub Actions run on the `langwatch/cooking-agent` r
 
 Always aim to make something better. Pick the single highest-impact change supported by real evidence from traces, scenario results, or code inspection. Do not ship speculative features. Do not attempt more than one change per run.
 
+## Latency expectations
+
+Many operations here are slow: scenario suites can run several minutes, LLM calls take 10-60 seconds each, and the FastAPI backend is hosted on Render's free tier — its first request after idle cold-starts and may take **60-90 seconds** to respond. Don't interpret a slow response as a hang or failure. Wait for the actual result before retrying or bailing out.
+
 ## Tools at your disposal
 
 - Full shell (Bash): `git`, `gh`, `pytest`, `curl`, `python`, `node`, `npx`.
