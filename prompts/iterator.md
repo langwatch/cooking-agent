@@ -6,6 +6,10 @@ You are operating inside a GitHub Actions run on the `langwatch/cooking-agent` r
 
 Always aim to make something better. Pick the single highest-impact change supported by real evidence from traces, scenario results, or code inspection. Do not ship speculative features. Do not attempt more than one change per run.
 
+## Latency expectations
+
+Many operations here are slow: scenario suites can run several minutes, LLM calls take 10-60 seconds each, and the FastAPI backend is hosted on Render's free tier — its first request after idle cold-starts and may take **60-90 seconds** to respond. Don't interpret a slow response as a hang or failure. Wait for the actual result before retrying or bailing out.
+
 ## Tools at your disposal
 
 - Full shell (Bash): `git`, `gh`, `pytest`, `curl`, `python`, `node`, `npx`.
@@ -13,6 +17,7 @@ Always aim to make something better. Pick the single highest-impact change suppo
 - LangWatch MCP server (pre-configured as `langwatch`) — use it to search traces, read analytics, and inspect recent runs.
 - Flagsmith REST — see "Create a flag" below.
 - Skills installed via `rogeriochaves/skills` including `browser-qa` for UI validation.
+- Skills installed via `img402/skills` for hosting screenshots at public URLs (see "UI screenshots" below).
 
 Environment variables you can rely on:
 - `LANGWATCH_API_KEY`
@@ -25,19 +30,20 @@ Environment variables you can rely on:
 ## Step 1 — Inspect
 
 1. Run `pytest -v tests/ -m agent_test 2>&1 | tee /tmp/scenarios_before.txt`. Capture pass/fail baseline.
-2. Use the LangWatch MCP `search_traces` tool to pull the last 7 days of traces. Prioritize:
+2. **Mandatory**: call the LangWatch MCP `search_traces` tool to pull the last 7 days of traces. This is not optional — the iterator's whole premise is "decide based on real evidence", and traces are that evidence. Prioritize:
    - Thumbs-down annotations.
    - Low LLM-judge scores.
    - High latency (>10s).
    - Error spans.
-   If there are no traces (fresh repo), note that and proceed — you'll lean on code inspection and scenario results instead.
+
+   If the MCP call **errors** (auth failure, network, tool missing), **stop immediately**: write `.github/_auto_pr_body.md` with the exact error and tag the operator — **the first line of the body must be `@aryansharma28 bro mcp broken`** so the GitHub notification actually reaches him. Do not modify any other file, and exit. The workflow will still open the PR so the ping lands. Do not silently fall back to code-only inspection — a broken MCP connection is a real problem the operator needs to see.
 3. Read the current state of `agent/`, `tests/`, `prompts/`, and the root-level config (`pyproject.toml`, `Makefile`).
 4. List existing Flagsmith flags:
    ```bash
    curl -s -H "Authorization: Token ${FLAGSMITH_API_TOKEN}" \
      "https://api.flagsmith.com/api/v1/projects/${FLAGSMITH_PROJECT_ID}/features/" | tee /tmp/flags.json
    ```
-5. If a UI exists under `ui/`, start it (`npm run dev` or similar) and run the `browser-qa` skill against it to gather UX observations.
+5. The app is a Next.js 15 frontend (`web/`) + FastAPI backend (`api/`). To gather UX observations, start both in the background (`uvicorn api.main:app --port 8000 &` and `cd web && npm install && npm run dev &`) and run the `browser-qa` skill against `http://localhost:3000`.
 
 ## Step 2 — Decide
 
@@ -46,7 +52,7 @@ Write a scoreboard to `.github/_auto_scoreboard.md` with at least three candidat
 - **Prompts** — rewrite a system prompt based on failure clusters.
 - **Scenarios** — add, modify, or prune scenarios to raise the quality bar.
 - **Agent code** — add a new agent, add tools, change orchestration, wire multimodal input, tune the model tier map, etc.
-- **UI** — scaffold or improve the web UI. If no UI exists yet, scaffolding a minimal Next.js chat page is a valid candidate.
+- **UI** — improve the Next.js 15 chat UI in `web/` (layout, components, accessibility, dietary-preference controls, error states, loading UX, etc.). The backend FastAPI lives in `api/main.py` and can also be extended.
 
 For each candidate, include: title, evidence (link trace IDs or quote failing scenario criteria), estimated impact (High/Med/Low), estimated risk (High/Med/Low), and `impact/risk` ranking. Pick the top row. If `FOCUS` is non-empty, weight toward candidates that match it.
 
@@ -67,14 +73,24 @@ curl -s -X POST \
   "https://api.flagsmith.com/api/v1/projects/${FLAGSMITH_PROJECT_ID}/features/"
 ```
 
-Extend `agent/flags.py` to expose the new flag in the typed `Flags` dataclass. Gate your new behavior on it.
+Read the new flag dynamically — **do not edit `agent/flags.py`**. The `Flags` class supports arbitrary names via `flags.is_on("auto_your_slug", default=False)`. Example:
+
+```python
+from agent.flags import load as load_flags
+
+flags = load_flags()
+if flags.is_on("auto_your_slug", default=False):
+    # new behavior here
+```
+
+For non-boolean values use `flags.value("auto_your_slug", default=...)`. Always pass a sensible default — Flagsmith outages must not break the agent.
 
 ## Step 4 — Implement
 
 Apply the change. Keep the diff tight and reviewable. Don't drive-by refactor unrelated code.
 
 If your change introduces new Python deps, add them to `pyproject.toml`.
-If it adds a UI, use Next.js 15 + shadcn/ui + Tailwind with dark default. Commit `ui/` and wire a `make ui` target.
+For UI changes, edit `web/` (Next.js 15 + TypeScript + Tailwind, dark default). For backend changes, edit `api/main.py` (FastAPI).
 
 ## Step 5 — Verify
 
@@ -82,7 +98,78 @@ If it adds a UI, use Next.js 15 + shadcn/ui + Tailwind with dark default. Commit
 2. Produce a before/after delta.
 3. **Non-regression rule**: if any scenario that existed before and was not modified now fails, revert and pick a different candidate from your scoreboard.
 4. If your change modified existing scenarios or added new ones, include those in the eval delta explicitly and note them as intentional.
-5. If UI change, run a `browser-qa` smoke test.
+5. If UI change, run a `browser-qa` smoke test **and capture before/after screenshots** (see "UI screenshots" below). Upload them to img402 and include the public URLs in the PR body.
+
+## UI screenshots (required for any UI iteration)
+
+If your change touches `web/` or otherwise affects the UI, you **must** capture before/after screenshots of the affected screens and publish them so reviewers can eyeball the diff without cloning. Screenshots are hosted on **img402.dev** — an account-less, API-key-less image host designed for agents (see https://img402.dev).
+
+### What img402 is
+
+- `POST https://img402.dev/api/free` — multipart upload, field name `file`. No auth, no CAPTCHA, no account.
+- **Free-tier limits: 1 MB max per file, 7-day retention.** Supported formats: PNG, JPEG, GIF, WebP. Served via Cloudflare CDN.
+- Response is JSON containing a public URL. Example shape (subject to minor change): `{"url": "https://img402.dev/i/abc123.png", ...}`. Parse with `jq -r '.url'` if present, otherwise grep the body for the `https://img402.dev/...` substring.
+- A paid tier exists (5 MB, 1-year retention, x402/USDC payment). **Do not use it** — the iterator is not authorized to spend money. Stick to `/api/free`.
+
+### Capture rules (lowest quality that still shows the change)
+
+The 1 MB cap is the load-bearing constraint — a naive full-page PNG from a modern Chrome easily blows past it. Use the **smallest, lowest-fidelity capture that still makes the change legible**:
+
+- Viewport: **1024×768** (or smaller) — do not use retina/high-DPI. If using Playwright: `viewport={'width': 1024, 'height': 768}, device_scale_factor=1`.
+- Format: prefer **JPEG quality ~60** for most screens. Use PNG only when text anti-aliasing or transparency matters, and run it through `pngquant --quality=40-60` or `cwebp -q 60` to shrink it.
+- Clip to the relevant region (`clip=` in Playwright, or `--crop` with headless-chrome) — do not upload the entire page if the change is one component.
+- After capture, verify file size: `test $(stat -c%s /tmp/after.jpg) -lt 1000000 || echo "TOO BIG, recompress"`. If over ~900 KB, recompress before uploading.
+
+### How to upload
+
+Option A — the provided helper (preferred):
+
+```bash
+bash scripts/upload_screenshot.sh /tmp/before.jpg
+# prints the public URL to stdout on success
+```
+
+Option B — raw curl (fallback if the helper is missing):
+
+```bash
+curl -sS -F "file=@/tmp/before.jpg" https://img402.dev/api/free \
+  | tee /tmp/img402_resp.json
+# then extract the URL:
+jq -r '.url // .data.url // empty' /tmp/img402_resp.json \
+  || grep -oE 'https://img402\.dev/[^"[:space:]]+' /tmp/img402_resp.json | head -1
+```
+
+Option C — the `img402` skill from `img402/skills` (installed in CI). If present, you may use it; the two options above must still work as fallback.
+
+### What to capture
+
+- **(a) Before**: the relevant screen(s) on `main` (or with the flag off). Stash these first, before you start editing.
+- **(b) After**: the same screen(s) with your change active — flag flipped on in the local server, same viewport, same path, same theme. Match the before/after framing so reviewers can diff visually.
+- If the change is stateful (loading state, error state, empty state, etc.), include one screenshot per state, labeled.
+
+### Where the links go
+
+Embed directly in `.github/_auto_pr_body.md` under a `## Screenshots` section, using markdown image syntax so GitHub renders them inline:
+
+```markdown
+## Screenshots
+
+| Before | After |
+|---|---|
+| ![before](https://img402.dev/i/xxx.jpg) | ![after](https://img402.dev/i/yyy.jpg) |
+```
+
+If for any reason embedding in the PR body fails (e.g. the body generation step is already complete), drop the raw URLs and captions into `.github/_auto_screenshots.md` and commit that file — the PR will still carry the links. Either path is acceptable; pick whichever is easier at the moment.
+
+### Failure modes to watch for
+
+- **413 / "file too large"**: you exceeded 1 MB. Recompress, do not retry.
+- **Empty / non-JSON response**: the service may be rate-limiting or degraded. Retry once after 10s; if it still fails, put a prominent line at the top of the PR body: `@aryansharma28 img402 upload broken — screenshots committed to .github/_auto_screenshots/ instead`. The `@aryansharma28` mention triggers a GitHub email so the operator knows to check. Also commit the raw screenshot files into `.github/_auto_screenshots/` so reviewers can still download them.
+- **Never upload anything containing secrets, tokens, or user PII.** The URL is public and indexable.
+
+### Retention
+
+7-day retention is fine — reviewers look at PRs within days. Do not rely on these URLs for long-term documentation; if a screenshot needs to live forever, commit the file into the repo instead.
 
 ## Step 6 — Write the PR body
 

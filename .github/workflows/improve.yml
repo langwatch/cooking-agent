@@ -1,5 +1,11 @@
 name: improve
 
+# Heads-up: this workflow can take 5-15 minutes end-to-end. The iterator
+# step alone often runs >1 minute (LLM calls, scenario runs, optional
+# round-trips to the Render-hosted backend which cold-starts after idle).
+# Don't cancel a run just because nothing's printed for a while — it's
+# normal. Timeouts below are sized for the slow path.
+
 on:
   workflow_dispatch:
     inputs:
@@ -71,7 +77,7 @@ jobs:
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           echo "ts=$ts" >> "$GITHUB_OUTPUT"
 
-      - name: Run the iterator (Claude Code, Sonnet 4.5)
+      - name: Run the iterator (Claude Code, Sonnet 4.6)
         id: iterate
         run: |
           set -e
@@ -84,10 +90,9 @@ ${FOCUS}"
           fi
           timeout 780 claude \
             -p "$prompt" \
-            --model claude-sonnet-4-5 \
+            --model claude-sonnet-4-6 \
             --permission-mode bypassPermissions \
-            --output-format text \
-          || echo "iterator exited non-zero; continuing to PR gate"
+            --output-format text
 
       - name: Stage + commit any changes
         id: commit
