@@ -73,7 +73,17 @@ curl -s -X POST \
   "https://api.flagsmith.com/api/v1/projects/${FLAGSMITH_PROJECT_ID}/features/"
 ```
 
-Extend `agent/flags.py` to expose the new flag in the typed `Flags` dataclass. Gate your new behavior on it.
+Read the new flag dynamically — **do not edit `agent/flags.py`**. The `Flags` class supports arbitrary names via `flags.is_on("auto_your_slug", default=False)`. Example:
+
+```python
+from agent.flags import load as load_flags
+
+flags = load_flags()
+if flags.is_on("auto_your_slug", default=False):
+    # new behavior here
+```
+
+For non-boolean values use `flags.value("auto_your_slug", default=...)`. Always pass a sensible default — Flagsmith outages must not break the agent.
 
 ## Step 4 — Implement
 
