@@ -83,10 +83,7 @@ jobs:
           set -e
           prompt="$(cat prompts/iterator.md)"
           if [ -n "$FOCUS" ]; then
-            prompt="${prompt}
-
-## Focus hint from operator
-${FOCUS}"
+            prompt="${prompt}"$'\n\n'"## Focus hint from operator"$'\n'"${FOCUS}"
           fi
           timeout 780 claude \
             -p "$prompt" \
