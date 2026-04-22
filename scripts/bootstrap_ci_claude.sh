@@ -11,6 +11,10 @@ echo "=== installing rogeriochaves/skills ==="
 # Not fatal if this fails; iterator can still run without skills.
 npx -y skills add rogeriochaves/skills -g || echo "skills install failed; continuing"
 
+echo "=== installing img402/skills (screenshot hosting for UI iterations) ==="
+# Free tier: <1MB, 7-day retention, no API key needed. See https://img402.dev
+npx -y skills add img402/skills -g || echo "img402 skills install failed; continuing"
+
 echo "=== writing ~/.claude/mcp.json ==="
 mkdir -p "$HOME/.claude"
 if [ -f .claude/mcp.json ]; then

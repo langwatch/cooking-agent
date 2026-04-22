@@ -17,6 +17,7 @@ Many operations here are slow: scenario suites can run several minutes, LLM call
 - LangWatch MCP server (pre-configured as `langwatch`) — use it to search traces, read analytics, and inspect recent runs.
 - Flagsmith REST — see "Create a flag" below.
 - Skills installed via `rogeriochaves/skills` including `browser-qa` for UI validation.
+- Skills installed via `img402/skills` for hosting screenshots at public URLs (see "UI screenshots" below).
 
 Environment variables you can rely on:
 - `LANGWATCH_API_KEY`
@@ -86,7 +87,78 @@ For UI changes, edit `web/` (Next.js 15 + TypeScript + Tailwind, dark default). 
 2. Produce a before/after delta.
 3. **Non-regression rule**: if any scenario that existed before and was not modified now fails, revert and pick a different candidate from your scoreboard.
 4. If your change modified existing scenarios or added new ones, include those in the eval delta explicitly and note them as intentional.
-5. If UI change, run a `browser-qa` smoke test.
+5. If UI change, run a `browser-qa` smoke test **and capture before/after screenshots** (see "UI screenshots" below). Upload them to img402 and include the public URLs in the PR body.
+
+## UI screenshots (required for any UI iteration)
+
+If your change touches `web/` or otherwise affects the UI, you **must** capture before/after screenshots of the affected screens and publish them so reviewers can eyeball the diff without cloning. Screenshots are hosted on **img402.dev** — an account-less, API-key-less image host designed for agents (see https://img402.dev).
+
+### What img402 is
+
+- `POST https://img402.dev/api/free` — multipart upload, field name `file`. No auth, no CAPTCHA, no account.
+- **Free-tier limits: 1 MB max per file, 7-day retention.** Supported formats: PNG, JPEG, GIF, WebP. Served via Cloudflare CDN.
+- Response is JSON containing a public URL. Example shape (subject to minor change): `{"url": "https://img402.dev/i/abc123.png", ...}`. Parse with `jq -r '.url'` if present, otherwise grep the body for the `https://img402.dev/...` substring.
+- A paid tier exists (5 MB, 1-year retention, x402/USDC payment). **Do not use it** — the iterator is not authorized to spend money. Stick to `/api/free`.
+
+### Capture rules (lowest quality that still shows the change)
+
+The 1 MB cap is the load-bearing constraint — a naive full-page PNG from a modern Chrome easily blows past it. Use the **smallest, lowest-fidelity capture that still makes the change legible**:
+
+- Viewport: **1024×768** (or smaller) — do not use retina/high-DPI. If using Playwright: `viewport={'width': 1024, 'height': 768}, device_scale_factor=1`.
+- Format: prefer **JPEG quality ~60** for most screens. Use PNG only when text anti-aliasing or transparency matters, and run it through `pngquant --quality=40-60` or `cwebp -q 60` to shrink it.
+- Clip to the relevant region (`clip=` in Playwright, or `--crop` with headless-chrome) — do not upload the entire page if the change is one component.
+- After capture, verify file size: `test $(stat -c%s /tmp/after.jpg) -lt 1000000 || echo "TOO BIG, recompress"`. If over ~900 KB, recompress before uploading.
+
+### How to upload
+
+Option A — the provided helper (preferred):
+
+```bash
+bash scripts/upload_screenshot.sh /tmp/before.jpg
+# prints the public URL to stdout on success
+```
+
+Option B — raw curl (fallback if the helper is missing):
+
+```bash
+curl -sS -F "file=@/tmp/before.jpg" https://img402.dev/api/free \
+  | tee /tmp/img402_resp.json
+# then extract the URL:
+jq -r '.url // .data.url // empty' /tmp/img402_resp.json \
+  || grep -oE 'https://img402\.dev/[^"[:space:]]+' /tmp/img402_resp.json | head -1
+```
+
+Option C — the `img402` skill from `img402/skills` (installed in CI). If present, you may use it; the two options above must still work as fallback.
+
+### What to capture
+
+- **(a) Before**: the relevant screen(s) on `main` (or with the flag off). Stash these first, before you start editing.
+- **(b) After**: the same screen(s) with your change active — flag flipped on in the local server, same viewport, same path, same theme. Match the before/after framing so reviewers can diff visually.
+- If the change is stateful (loading state, error state, empty state, etc.), include one screenshot per state, labeled.
+
+### Where the links go
+
+Embed directly in `.github/_auto_pr_body.md` under a `## Screenshots` section, using markdown image syntax so GitHub renders them inline:
+
+```markdown
+## Screenshots
+
+| Before | After |
+|---|---|
+| ![before](https://img402.dev/i/xxx.jpg) | ![after](https://img402.dev/i/yyy.jpg) |
+```
+
+If for any reason embedding in the PR body fails (e.g. the body generation step is already complete), drop the raw URLs and captions into `.github/_auto_screenshots.md` and commit that file — the PR will still carry the links. Either path is acceptable; pick whichever is easier at the moment.
+
+### Failure modes to watch for
+
+- **413 / "file too large"**: you exceeded 1 MB. Recompress, do not retry.
+- **Empty / non-JSON response**: the service may be rate-limiting or degraded. Retry once after 10s; if it still fails, note "img402 unavailable" in the PR body and commit the screenshot files into `.github/_auto_screenshots/` as a fallback so reviewers can still download them.
+- **Never upload anything containing secrets, tokens, or user PII.** The URL is public and indexable.
+
+### Retention
+
+7-day retention is fine — reviewers look at PRs within days. Do not rely on these URLs for long-term documentation; if a screenshot needs to live forever, commit the file into the repo instead.
 
 ## Step 6 — Write the PR body
 
