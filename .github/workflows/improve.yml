@@ -92,8 +92,7 @@ ${FOCUS}"
             -p "$prompt" \
             --model claude-sonnet-4-6 \
             --permission-mode bypassPermissions \
-            --output-format text \
-          || echo "iterator exited non-zero; continuing to PR gate"
+            --output-format text
 
       - name: Stage + commit any changes
         id: commit
