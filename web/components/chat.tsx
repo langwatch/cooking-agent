@@ -13,12 +13,22 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [tier, setTier] = useState<Tier>("mid");
   const [loading, setLoading] = useState(false);
+  const [slow, setSlow] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
+
+  useEffect(() => {
+    if (!loading) {
+      setSlow(false);
+      return;
+    }
+    const t = setTimeout(() => setSlow(true), 5000);
+    return () => clearTimeout(t);
+  }, [loading]);
 
   async function send() {
     const text = input.trim();
@@ -87,8 +97,15 @@ export default function Chat() {
           </div>
         ))}
         {loading && (
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <Loader2 className="animate-spin" size={16} /> cooking…
+          <div className="flex flex-col gap-1 text-muted-foreground text-sm">
+            <div className="flex items-center gap-2">
+              <Loader2 className="animate-spin" size={16} /> cooking…
+            </div>
+            {slow && (
+              <div className="text-xs ml-6">
+                The backend runs on a free tier and may cold-start — first reply can take up to ~60s.
+              </div>
+            )}
           </div>
         )}
         {error && <div className="text-red-400 text-sm">Error: {error}</div>}
