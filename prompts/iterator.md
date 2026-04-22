@@ -30,12 +30,15 @@ Environment variables you can rely on:
 ## Step 1 — Inspect
 
 1. Run `pytest -v tests/ -m agent_test 2>&1 | tee /tmp/scenarios_before.txt`. Capture pass/fail baseline.
-2. Use the LangWatch MCP `search_traces` tool to pull the last 7 days of traces. Prioritize:
+2. **Mandatory**: call the LangWatch MCP `search_traces` tool to pull the last 7 days of traces. This is not optional — the iterator's whole premise is "decide based on real evidence", and traces are that evidence. Prioritize:
    - Thumbs-down annotations.
    - Low LLM-judge scores.
    - High latency (>10s).
    - Error spans.
-   If there are no traces (fresh repo), note that and proceed — you'll lean on code inspection and scenario results instead.
+
+   If the MCP call **errors** (auth failure, network, tool missing), **stop immediately**: write `.github/_auto_pr_body.md` explaining the MCP failure (include the exact error), do not modify any other file, and exit. The workflow will skip the PR. Do not silently fall back to code-only inspection — a broken MCP connection is a real problem the operator needs to see.
+
+   If the MCP call **succeeds but returns zero traces** (genuinely fresh repo, no usage yet), that's acceptable: record "0 traces in last 7 days — relying on scenario results and code inspection" in the scoreboard and proceed. But you must have actually made the call and seen an empty result, not skipped it.
 3. Read the current state of `agent/`, `tests/`, `prompts/`, and the root-level config (`pyproject.toml`, `Makefile`).
 4. List existing Flagsmith flags:
    ```bash
