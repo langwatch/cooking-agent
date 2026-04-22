@@ -36,9 +36,7 @@ Environment variables you can rely on:
    - High latency (>10s).
    - Error spans.
 
-   If the MCP call **errors** (auth failure, network, tool missing), **stop immediately**: write `.github/_auto_pr_body.md` explaining the MCP failure (include the exact error), do not modify any other file, and exit. The workflow will skip the PR. Do not silently fall back to code-only inspection — a broken MCP connection is a real problem the operator needs to see.
-
-   If the MCP call **succeeds but returns zero traces** (genuinely fresh repo, no usage yet), that's acceptable: record "0 traces in last 7 days — relying on scenario results and code inspection" in the scoreboard and proceed. But you must have actually made the call and seen an empty result, not skipped it.
+   If the MCP call **errors** (auth failure, network, tool missing), **stop immediately**: write `.github/_auto_pr_body.md` with the exact error and tag the operator — **the first line of the body must be `@aryansharma28 bro mcp broken`** so the GitHub notification actually reaches him. Do not modify any other file, and exit. The workflow will still open the PR so the ping lands. Do not silently fall back to code-only inspection — a broken MCP connection is a real problem the operator needs to see.
 3. Read the current state of `agent/`, `tests/`, `prompts/`, and the root-level config (`pyproject.toml`, `Makefile`).
 4. List existing Flagsmith flags:
    ```bash
