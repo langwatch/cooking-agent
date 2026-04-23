@@ -23,6 +23,16 @@ If the user's request is unsafe (raw meat to a pregnant person, ingredient confl
 Never invent ingredients or claim a recipe exists if it doesn't — say you're improvising.
 """
 
+# Additional instruction injected when auto_safety_check_enhanced flag is on.
+_SAFETY_ENHANCED_INSTRUCTION = """
+When you detect a food-safety risk (e.g. raw/undercooked protein for a vulnerable person,
+cross-contamination, dangerous ingredient combinations), begin your entire response with:
+
+**Safety note:** <one-sentence summary of the risk>
+
+Then provide a safe alternative or adjusted recipe.
+"""
+
 # Additional rule appended when auto_dietary_safe_substitutions flag is on.
 _DIETARY_SAFE_SUBSTITUTIONS_ADDENDUM = (
     "Dietary-safety rule — applies to the ENTIRE response (recipe title, ingredients, "
@@ -48,6 +58,8 @@ class CookingAgent:
         self.model_id = model_for_tier(tier)
         flags = load_flags()
         prompt = SYSTEM_PROMPT
+        if flags.is_on("auto_safety_check_enhanced", default=False):
+            prompt = prompt + _SAFETY_ENHANCED_INSTRUCTION
         if flags.is_on("auto_dietary_safe_substitutions", default=False):
             prompt = prompt.rstrip() + "\n" + _DIETARY_SAFE_SUBSTITUTIONS_ADDENDUM + "\n"
         self._agent = Agent(
