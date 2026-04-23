@@ -43,11 +43,12 @@ def _get_agent(tier: str):
 
 class HistoryMessage(BaseModel):
     role: str = Field(..., pattern="^(user|assistant)$")
-    content: str = Field(..., min_length=1, max_length=4000)
+    # Assistant replies can easily exceed 4k chars for detailed recipes.
+    content: str = Field(..., min_length=1, max_length=50_000)
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=4000)
+    message: str = Field(..., min_length=1, max_length=8_000)
     tier: str = Field("mid", pattern="^(cheap|mid|premium)$")
     history: list[HistoryMessage] = Field(default_factory=list, max_length=50)
     session_id: str | None = Field(None, max_length=64)
