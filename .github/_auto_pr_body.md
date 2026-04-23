@@ -1,15 +1,15 @@
-# auto: add safety-warning scenario + enhanced prompt flag
+# auto: add multi-turn conversation history support
 
 ## Why
-
-The system prompt explicitly promises "if the user's request is unsafe (raw meat to a pregnant person, ingredient conflicts), say so clearly before continuing" — but 113 traces over 7 days and zero existing tests ever exercised this code path. A future prompt edit could silently break this safety guarantee with no regression signal. The new scenario (`safety_warning`) closes that gap and validates the promise on every CI run. The `auto_safety_check_enhanced` flag, when flipped on, also injects an extra instruction that forces the safety note to appear *before* any recipe content, making it structurally impossible to bury.
+The chat UI (`web/components/chat.tsx`) maintains a full `messages[]` conversation state, but every API request was stateless — the backend discarded all prior turns. A user asking "make it vegan" or "what if I don't have Parmesan?" would get a confused, context-free response. The same `_agent_cache` also shared one Agno `Agent` instance per tier across all users, meaning conversation history from User A could bleed into User B's responses.
 
 ## What
-- `tests/test_safety_warning.py`: new scenario — pregnant user requests raw-salmon sushi; agent must warn first, then offer a safe cooked alternative.
-- `agent/cooking_agent.py`: when `auto_safety_check_enhanced` is **on**, appends `_SAFETY_ENHANCED_INSTRUCTION` to the system prompt, requiring responses that detect a food-safety risk to open with `**Safety note:** <risk summary>` before any recipe content.
+- `agent/cooking_agent.py`: Added optional `history: list[dict]` parameter to `chat()`. When history is non-empty, builds a full OpenAI messages array (`system` + prior turns + new user message) via the raw OpenAI client instead of Agno, so context is sent verbatim without session accumulation side-effects.
+- `api/main.py`: Added `HistoryMessage` model and `history` field to `ChatRequest` (max 50 messages, each max 4000 chars). When `auto_conversation_history` is on and history is present, creates a fresh agent per request (fixes cross-user isolation) and passes history to `agent.chat()`.
+- `web/components/chat.tsx`: Always sends the current `messages` state as `history` with each request. The backend ignores it when the flag is off, so the change is backward-compatible.
 
 ## Flag
-- `auto_safety_check_enhanced` — default **off**. Enable in Flagsmith "cooking" project → Development to activate the stronger safety-note formatting in live responses.
+- `auto_conversation_history` — default **off**. Enable in Flagsmith "cooking" project → Development to activate.
 
 ## Eval delta
 | Scenario | Before | After |
@@ -17,20 +17,23 @@ The system prompt explicitly promises "if the user's request is unsafe (raw meat
 | basic_weeknight_recipe | ✅ 4/4 | ✅ 4/4 |
 | dietary_constraints | ✅ 4/4 | ✅ 4/4 |
 | substitution | ✅ 4/4 | ✅ 4/4 |
-| safety_warning *(new)* | — | ✅ 4/4 |
+
+No regressions. All existing scenarios continued to use the single-turn (flag-off) path — zero behavior change until the flag is flipped.
 
 ## How to test
 ```
-git checkout auto/improve-20260423-082717
+git checkout auto/improve-20260423-084145
 pip install -e ".[dev]"
 pytest -v tests/ -m agent_test
-# then flip auto_safety_check_enhanced on in Flagsmith to verify
-# the **Safety note:** header appears first in unsafe-request responses
+# then flip auto_conversation_history ON in Flagsmith to exercise multi-turn live:
+# POST /chat with {"message": "make it vegan", "tier": "mid",
+#   "history": [{"role": "user", "content": "give me a pasta recipe"},
+#               {"role": "assistant", "content": "..."}]}
 ```
 
 ## Rollback
-Flip `auto_safety_check_enhanced` off in Flagsmith. The scenario test is purely additive — it validates existing claimed behavior and can be left in place regardless of the flag state.
+Flip `auto_conversation_history` off in Flagsmith. No code revert needed.
 
 ## Follow-ups
-- Candidate 2 (multi-turn refinement scenario) is worth doing next: `conftest.py` only passes `last_new_user_message_str()` so the agent is effectively stateless per turn; no test validates whether "make it dairy-free" after an initial recipe works correctly.
-- Candidate 3 (fix PII false-positive): en/em dashes like "30–45 seconds" trigger `<US_DRIVER_LICENSE>` masking in LangWatch on ~50% of recipe traces, corrupting monitoring data. Fix: instruct the model to use plain hyphens for time ranges.
+- Add a `test_followup_refinement.py` scenario that sends a two-turn conversation and verifies the agent adapts correctly (e.g., "make it vegan" after a non-vegan recipe).
+- Consider replacing `_agent_cache` with a proper per-session store so the Agno path also benefits from isolation in future.
