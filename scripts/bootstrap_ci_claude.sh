@@ -25,7 +25,7 @@ else
   "mcpServers": {
     "langwatch": {
       "type": "http",
-      "url": "https://app.langwatch.ai/api/mcp",
+      "url": "https://app.langwatch.ai/mcp",
       "headers": {
         "Authorization": "Bearer ${LANGWATCH_API_KEY}"
       }
