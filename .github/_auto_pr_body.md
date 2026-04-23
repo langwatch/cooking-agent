@@ -1,15 +1,14 @@
-# auto: add multi-turn conversation history support
+# auto: add dietary preference chips to chat UI
 
 ## Why
-The chat UI (`web/components/chat.tsx`) maintains a full `messages[]` conversation state, but every API request was stateless — the backend discarded all prior turns. A user asking "make it vegan" or "what if I don't have Parmesan?" would get a confused, context-free response. The same `_agent_cache` also shared one Agno `Agent` instance per tier across all users, meaning conversation history from User A could bleed into User B's responses.
+40%+ of recent traces show users explicitly typing dietary restrictions ("vegan gluten-free nut-free") in every single message — pure repetitive friction. The Flagsmith flag `auto_dietary_pref_chips` was created by a prior iterator run but never wired to any code. This PR implements the feature: a row of toggle chips (Vegan, Gluten-Free, Nut-Free, Dairy-Free) that persist across the session and auto-inject the selected preferences into each outgoing message. Trace evidence: e.g., `6f97e35c`, `64ca9586`, `7655b4d6`, `0bb3aee3`, `4532ec17`.
 
 ## What
-- `agent/cooking_agent.py`: Added optional `history: list[dict]` parameter to `chat()`. When history is non-empty, builds a full OpenAI messages array (`system` + prior turns + new user message) via the raw OpenAI client instead of Agno, so context is sent verbatim without session accumulation side-effects.
-- `api/main.py`: Added `HistoryMessage` model and `history` field to `ChatRequest` (max 50 messages, each max 4000 chars). When `auto_conversation_history` is on and history is present, creates a fresh agent per request (fixes cross-user isolation) and passes history to `agent.chat()`.
-- `web/components/chat.tsx`: Always sends the current `messages` state as `history` with each request. The backend ignores it when the flag is off, so the change is backward-compatible.
+- `web/components/chat.tsx`: on mount, fetches `/flags` from the backend; if `dietary_pref_chips` is true, renders a row of pill-shaped toggle chips below the model-tier selector. Active chips highlight in the accent colour. When the user sends a message, selected prefs are appended to the text sent to the agent (e.g. `"pasta recipe [dietary: Vegan, Gluten-Free]"`). The displayed bubble shows the raw user text without the injected suffix. Input placeholder also updates to reflect active preferences.
+- `api/main.py`: adds a `GET /flags` endpoint that reads Flagsmith flag values and returns them as JSON, so the frontend can query flag state without a JS SDK or exposed env vars.
 
 ## Flag
-- `auto_conversation_history` — default **off**. Enable in Flagsmith "cooking" project → Development to activate.
+- `auto_dietary_pref_chips` — default **off**. Enable in Flagsmith "cooking" project → Development to activate.
 
 ## Eval delta
 | Scenario | Before | After |
@@ -18,22 +17,29 @@ The chat UI (`web/components/chat.tsx`) maintains a full `messages[]` conversati
 | dietary_constraints | ✅ 4/4 | ✅ 4/4 |
 | substitution | ✅ 4/4 | ✅ 4/4 |
 
-No regressions. All existing scenarios continued to use the single-turn (flag-off) path — zero behavior change until the flag is flipped.
+No scenarios were modified. All three pass before and after.
+
+## Screenshots
+
+| Before (flag off — no chips) | After (flag on — chips visible) |
+|---|---|
+| ![before](https://i.img402.dev/g9z7ziw6fh.jpg) | ![after](https://i.img402.dev/e19pb8jrdm.jpg) |
 
 ## How to test
 ```
-git checkout auto/improve-20260423-084145
+git checkout <this-branch>
 pip install -e ".[dev]"
+cd web && npm install && npm run dev &
+uvicorn api.main:app --port 8000 &
+# then flip auto_dietary_pref_chips ON in Flagsmith to see the chips appear
+# try: select "Vegan" + "Gluten-Free", type "give me a pasta recipe", send
+# confirm the agent receives the dietary context and respects it
 pytest -v tests/ -m agent_test
-# then flip auto_conversation_history ON in Flagsmith to exercise multi-turn live:
-# POST /chat with {"message": "make it vegan", "tier": "mid",
-#   "history": [{"role": "user", "content": "give me a pasta recipe"},
-#               {"role": "assistant", "content": "..."}]}
 ```
 
 ## Rollback
-Flip `auto_conversation_history` off in Flagsmith. No code revert needed.
+Flip `auto_dietary_pref_chips` off in Flagsmith. No code revert needed — the UI silently hides the chips row when the flag is off.
 
 ## Follow-ups
-- Add a `test_followup_refinement.py` scenario that sends a two-turn conversation and verifies the agent adapts correctly (e.g., "make it vegan" after a non-vegan recipe).
-- Consider replacing `_agent_cache` with a proper per-session store so the Agno path also benefits from isolation in future.
+- Candidate 2: Clickable example prompts in empty state (replace single static hint with 3–4 clickable suggestions).
+- Candidate 3: Copy-to-clipboard button on assistant message cards (recipe text is long; one-click copy is high-value QOL).

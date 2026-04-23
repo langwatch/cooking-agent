@@ -60,6 +60,14 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/flags")
+def get_flags():
+    flags = load_flags()
+    return {
+        "dietary_pref_chips": flags.is_on("auto_dietary_pref_chips", default=False),
+    }
+
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
     flags = load_flags()
