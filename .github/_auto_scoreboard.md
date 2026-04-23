@@ -1,15 +1,15 @@
 # Auto Scoreboard — 2026-04-23
 
 ## Traces summary
-200 traces from last 7 days, all healthy (no thumbs-down annotations, no errors). Scenarios 4/4 green. Operator focus: **design improvements to chat UI**.
+239 traces from last 7 days. All 4 scenarios pass. Multi-turn conversations visible in traces (e.g. `2f8f5f558589310067df55ae1e5f7344` has `history` showing a prior turn), but every trace appears as an isolated root in LangWatch — no thread_id grouping, making it impossible to replay a full user conversation in the UI.
 
 ## Candidates
 
 | # | Title | Evidence | Impact | Risk | Score |
 |---|---|---|---|---|---|
-| 1 | **Chat bubble layout** — right-align user messages as warm-tinted rounded bubbles; left-align assistant messages as elevated cards | `chat.tsx` uses `ml-8`/`mr-8` indents — no directional alignment; messages look identical without tiny "You"/"Chef" label. Bubble layout is the single highest-impact visual improvement for a chat UI | High | Low | **1st** |
-| 2 | Header + page polish — gradient, sticky input, subtle separator | Page header is bare `text-2xl` with no visual weight | Med | Low | 2nd |
-| 3 | Implement `auto_starter_prompts` clickable chips (flag exists, no code yet) | Flagsmith flag registered, zero frontend implementation | Med | Med | 3rd |
+| 1 | **Session threading** — generate stable `localStorage` UUID as `session_id`, pass it to `/chat`, set `metadata.thread_id` on LangWatch trace so multi-turn conversations appear as one thread; optionally persist messages across page refresh | Traces `2f8f5f558589310067df55ae1e5f7344` + `4c57edaa3ccdf751aa307e6d5fc3085a` are same conversation but show as unrelated roots; operator explicitly requested this via FOCUS hint | High | Low | **1st** |
+| 2 | Streaming SSE responses — emit tokens progressively to reduce perceived latency | Flag `auto_streaming_response` already registered; would duplicate previous iteration's work | Med | Med | 3rd |
+| 3 | Starter prompts on empty state — clickable example queries | Flag `auto_starter_prompts` registered but no frontend implementation yet | Low | Low | 4th |
 
-## Selected: Candidate 1 — Chat bubble layout
-Pure CSS/layout change, zero logic change — easiest non-regression to verify.
+## Selected: Candidate 1 — Session threading
+Directly addresses FOCUS hint. Small, reviewable diff. No risk to existing scenarios.

@@ -85,7 +85,9 @@ class CookingAgent:
         )
 
     @langwatch.trace(name="cooking_agent.chat")
-    def chat(self, message: str, history: list[dict] | None = None) -> str:
+    def chat(self, message: str, history: list[dict] | None = None, thread_id: str | None = None) -> str:
+        if thread_id:
+            langwatch.get_current_trace().update(metadata={"thread_id": thread_id})
         if history:
             # Multi-turn path: build full OpenAI messages array with conversation history.
             # Uses the raw OpenAI client so history is sent verbatim without Agno's
