@@ -8,6 +8,13 @@ import { cn, API_URL } from "@/lib/utils";
 type Message = { role: "user" | "assistant"; content: string };
 type Tier = "cheap" | "mid" | "premium";
 
+const DIETARY_CHIPS: { label: string; value: string }[] = [
+  { label: "🌱 Vegan", value: "Vegan" },
+  { label: "🌾 Gluten-Free", value: "Gluten-Free" },
+  { label: "🥜 Nut-Free", value: "Nut-Free" },
+  { label: "🥛 Dairy-Free", value: "Dairy-Free" },
+];
+
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -15,7 +22,16 @@ export default function Chat() {
   const [loading, setLoading] = useState(false);
   const [slow, setSlow] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [chipsEnabled, setChipsEnabled] = useState(false);
+  const [activePrefs, setActivePrefs] = useState<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetch(`${API_URL}/flags`)
+      .then((r) => r.json())
+      .then((data) => setChipsEnabled(!!data?.dietary_pref_chips))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -30,18 +46,32 @@ export default function Chat() {
     return () => clearTimeout(t);
   }, [loading]);
 
+  function togglePref(value: string) {
+    setActivePrefs((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  }
+
   async function send() {
     const text = input.trim();
     if (!text || loading) return;
     setError(null);
     setInput("");
+
+    const prefContext =
+      activePrefs.size > 0 ? ` [dietary: ${[...activePrefs].join(", ")}]` : "";
+    const messageWithPrefs = text + prefContext;
+
     setMessages((m) => [...m, { role: "user", content: text }]);
     setLoading(true);
     try {
       const res = await fetch(`${API_URL}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, tier }),
+        body: JSON.stringify({ message: messageWithPrefs, tier }),
       });
       if (!res.ok) {
         const body = await res.text();
@@ -71,13 +101,33 @@ export default function Chat() {
         </select>
       </div>
 
+      {chipsEnabled && (
+        <div className="flex flex-wrap gap-2">
+          {DIETARY_CHIPS.map(({ label, value }) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => togglePref(value)}
+              className={cn(
+                "px-3 py-1 rounded-full text-sm border transition-colors",
+                activePrefs.has(value)
+                  ? "bg-accent text-background border-accent font-medium"
+                  : "bg-card border-border text-muted-foreground hover:border-accent hover:text-foreground",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto rounded-lg border border-border bg-card p-4 space-y-4 min-h-[400px]"
       >
         {messages.length === 0 && (
           <p className="text-muted-foreground text-sm">
-            Try: “A 30-minute weeknight pasta using what’s usually in a pantry.”
+            Try: &quot;A 30-minute weeknight pasta using what&apos;s usually in a pantry.&quot;
           </p>
         )}
         {messages.map((m, i) => (
@@ -121,7 +171,11 @@ export default function Chat() {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="What are we cooking?"
+          placeholder={
+            chipsEnabled && activePrefs.size > 0
+              ? `What are we cooking? (${[...activePrefs].join(", ")} active)`
+              : "What are we cooking?"
+          }
           className="flex-1 bg-card border border-border rounded px-3 py-2 focus:outline-none focus:border-accent"
           disabled={loading}
         />
