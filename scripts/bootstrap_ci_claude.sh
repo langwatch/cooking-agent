@@ -44,11 +44,22 @@ fi
 echo "=== MCP preflight: tool-exists probe ==="
 # --mcp-config is required in headless mode: project-scoped .mcp.json normally
 # needs an interactive trust prompt that never fires under `claude -p`.
-mcp_probe=$(timeout 90 claude -p "output only 'OK' if you have a tool named mcp__langwatch__search_traces, otherwise output only 'MISSING'" \
+# Tee the probe output to the CI log so `set -euo pipefail` cannot swallow
+# a fast-failing `claude` (e.g. startup crash, bad OAuth token) — we need
+# to see what claude said before the script aborts.
+mcp_probe_log=$(mktemp)
+set +e
+timeout 90 claude -p "output only 'OK' if you have a tool named mcp__langwatch__search_traces, otherwise output only 'MISSING'" \
   --mcp-config .mcp.json \
-  --permission-mode bypassPermissions --output-format text 2>&1 | tail -1)
-if [ "$mcp_probe" != "OK" ]; then
-  echo "::error::langwatch MCP did not load (probe returned: $mcp_probe). Check .mcp.json and LANGWATCH_API_KEY. @aryansharma28" >&2
+  --permission-mode bypassPermissions --output-format text >"$mcp_probe_log" 2>&1
+mcp_probe_rc=$?
+set -e
+echo "--- mcp tool-exists probe output (rc=$mcp_probe_rc) ---"
+cat "$mcp_probe_log"
+echo "--- end mcp tool-exists probe output ---"
+mcp_probe=$(tail -1 "$mcp_probe_log")
+if [ "$mcp_probe_rc" -ne 0 ] || [ "$mcp_probe" != "OK" ]; then
+  echo "::error::langwatch MCP did not load (rc=$mcp_probe_rc, last line: $mcp_probe). Check .mcp.json and LANGWATCH_API_KEY. @aryansharma28" >&2
   exit 1
 fi
 echo "langwatch MCP loaded OK"
@@ -57,12 +68,19 @@ echo "=== MCP preflight: real auth probe ==="
 # Existence-only probe doesn't catch 401s — the iterator wasted 5+ min and
 # opened an abort-PR before we knew auth was broken. Actually invoke
 # search_traces so LangWatch validates the key during bootstrap.
-auth_probe=$(timeout 120 claude -p "Invoke the mcp__langwatch__search_traces tool with arguments {\"startDate\":\"2024-01-01T00:00:00Z\",\"endDate\":\"2024-01-01T00:01:00Z\",\"pageSize\":1}. After the tool returns, output ONLY one line: 'AUTH_OK' if the tool call succeeded (empty result is fine), or 'AUTH_FAIL: <first 120 chars of the error text>' if it returned any error." \
+auth_probe_log=$(mktemp)
+set +e
+timeout 120 claude -p "Invoke the mcp__langwatch__search_traces tool with arguments {\"startDate\":\"2024-01-01T00:00:00Z\",\"endDate\":\"2024-01-01T00:01:00Z\",\"pageSize\":1}. After the tool returns, output ONLY one line: 'AUTH_OK' if the tool call succeeded (empty result is fine), or 'AUTH_FAIL: <first 120 chars of the error text>' if it returned any error." \
   --mcp-config .mcp.json \
-  --permission-mode bypassPermissions --output-format text 2>&1)
-auth_last=$(echo "$auth_probe" | tail -5)
-if ! echo "$auth_last" | grep -q "AUTH_OK"; then
-  echo "::error::langwatch MCP auth probe failed. Tail: $auth_last" >&2
+  --permission-mode bypassPermissions --output-format text >"$auth_probe_log" 2>&1
+auth_probe_rc=$?
+set -e
+echo "--- mcp auth probe output (rc=$auth_probe_rc) ---"
+cat "$auth_probe_log"
+echo "--- end mcp auth probe output ---"
+auth_last=$(tail -5 "$auth_probe_log")
+if [ "$auth_probe_rc" -ne 0 ] || ! echo "$auth_last" | grep -q "AUTH_OK"; then
+  echo "::error::langwatch MCP auth probe failed (rc=$auth_probe_rc). Tail: $auth_last" >&2
   exit 1
 fi
 echo "langwatch MCP auth OK"
