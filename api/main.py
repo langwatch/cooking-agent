@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-import base64
 import os
-import re
 
-import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from agent.cooking_agent import build_agent
 from agent.flags import load as load_flags
+from agent.models import model_for_tier
 from agent.telemetry import setup as setup_telemetry
 
 load_dotenv()
@@ -67,11 +66,7 @@ def health():
     return {"status": "ok"}
 
 
-_GEMINI_URL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.0-flash:generateContent"
-)
-_GEMINI_SYSTEM = (
+_VISION_SYSTEM = (
     "You are a world-class home-cooking assistant. "
     "The user has shared an image. Analyse what you see (e.g. fridge contents, "
     "a finished dish, ingredients on a counter) and give actionable cooking advice: "
@@ -82,48 +77,34 @@ _GEMINI_SYSTEM = (
 )
 
 
-def _image_part(image: str) -> dict:
-    """Convert image string to a Gemini inlineData part."""
-    if image.startswith("data:"):
-        # data URL: data:<mime>;base64,<data>
-        m = re.match(r"data:([^;]+);base64,(.+)", image, re.DOTALL)
-        if not m:
-            raise ValueError("Malformed data URL")
-        return {"inlineData": {"mimeType": m.group(1), "data": m.group(2)}}
-    if image.startswith("http://") or image.startswith("https://"):
-        resp = httpx.get(image, timeout=15, follow_redirects=True)
-        resp.raise_for_status()
-        mime = resp.headers.get("content-type", "image/jpeg").split(";")[0]
-        return {"inlineData": {"mimeType": mime, "data": base64.b64encode(resp.content).decode()}}
-    # Raw base64 fallback — assume JPEG
-    return {"inlineData": {"mimeType": "image/jpeg", "data": image}}
+def _image_url(image: str) -> str:
+    """Normalize image input to a value accepted by OpenAI's image_url field.
+
+    Accepts data URLs and http(s) URLs verbatim; wraps raw base64 as a JPEG data URL.
+    """
+    if image.startswith("data:") or image.startswith("http://") or image.startswith("https://"):
+        return image
+    return f"data:image/jpeg;base64,{image}"
 
 
-def _call_gemini_vision(message: str, image: str) -> str:
-    api_key = os.getenv("GEMINI_API_KEY", "")
-    if not api_key:
-        raise HTTPException(status_code=503, detail="GEMINI_API_KEY not configured")
-    payload = {
-        "system_instruction": {"parts": [{"text": _GEMINI_SYSTEM}]},
-        "contents": [
+def _call_openai_vision(message: str, image: str, tier: str) -> str:
+    if not os.getenv("OPENAI_API_KEY"):
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY not configured")
+    client = OpenAI()
+    resp = client.chat.completions.create(
+        model=model_for_tier(tier),
+        messages=[
+            {"role": "system", "content": _VISION_SYSTEM},
             {
                 "role": "user",
-                "parts": [_image_part(image), {"text": message or "What can I cook with this?"}],
-            }
+                "content": [
+                    {"type": "image_url", "image_url": {"url": _image_url(image)}},
+                    {"type": "text", "text": message or "What can I cook with this?"},
+                ],
+            },
         ],
-    }
-    resp = httpx.post(
-        _GEMINI_URL,
-        params={"key": api_key},
-        json=payload,
-        timeout=60,
     )
-    resp.raise_for_status()
-    data = resp.json()
-    try:
-        return data["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError) as exc:
-        raise HTTPException(status_code=502, detail=f"Unexpected Gemini response: {data}") from exc
+    return resp.choices[0].message.content or ""
 
 
 @app.get("/flags")
@@ -145,9 +126,8 @@ def chat(req: ChatRequest):
     if not flags.cooking_agent_enabled:
         raise HTTPException(status_code=503, detail="cooking_agent_enabled flag is OFF")
 
-    # Multimodal path: delegate to Gemini Vision when flag is ON and image is present.
     if flags.is_on("auto_multimodal_images", default=False) and req.image:
-        reply = _call_gemini_vision(req.message, req.image)
+        reply = _call_openai_vision(req.message, req.image, req.tier)
         return ChatResponse(reply=reply, tier=req.tier)
 
     thread_id = req.session_id if flags.is_on("auto_session_threading", default=False) else None
