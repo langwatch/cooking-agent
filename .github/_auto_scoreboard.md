@@ -1,15 +1,19 @@
-# Auto Scoreboard — 2026-04-23
+# Auto Improvement Scoreboard — 2026-04-23
 
-## Traces summary
-200 traces from last 7 days, all healthy (no thumbs-down annotations, no errors). Scenarios 4/4 green. Operator focus: **design improvements to chat UI**.
+## Evidence Summary
+- **4/4 scenarios passing** — agent quality is solid, no functional regressions to fix
+- **224 traces in 7 days** — healthy traffic, no thumbs-down or error spans visible
+- **Focus hint**: "go wild on the design, make it the best one ever!"
+- **Existing flags**: `auto_chat_bubble_layout`, `auto_dietary_pref_chips`, `auto_starter_prompts` — UI scaffolding is already in place but the experience is still very utilitarian (plain text rendering of structured recipes)
 
 ## Candidates
 
-| # | Title | Evidence | Impact | Risk | Score |
+| # | Title | Evidence | Impact | Risk | Rank |
 |---|---|---|---|---|---|
-| 1 | **Chat bubble layout** — right-align user messages as warm-tinted rounded bubbles; left-align assistant messages as elevated cards | `chat.tsx` uses `ml-8`/`mr-8` indents — no directional alignment; messages look identical without tiny "You"/"Chef" label. Bubble layout is the single highest-impact visual improvement for a chat UI | High | Low | **1st** |
-| 2 | Header + page polish — gradient, sticky input, subtle separator | Page header is bare `text-2xl` with no visual weight | Med | Low | 2nd |
-| 3 | Implement `auto_starter_prompts` clickable chips (flag exists, no code yet) | Flagsmith flag registered, zero frontend implementation | Med | Med | 3rd |
+| 1 | **Premium UI: interactive recipe cards + visual overhaul** | Agent outputs a consistent structured format (title, ingredients grouped by category, numbered steps, dietary info, chef's tip). Rendering this as plain markdown wastes the structure entirely. Traces show 100% recipe-format responses. A card UI with ingredient checkboxes and step progress would transform the cook-along experience. | **High** | **Low** | 🥇 |
+| 2 | Add multi-turn meal-plan scenario | Traces show conversation history flag is live but no scenario tests multi-turn cooking sessions. A follow-up test would catch regressions. | Med | Low | 🥈 |
+| 3 | Add adversarial red-team scenario (allergen confusion) | No scenario tests a user claiming one allergy but requesting an ingredient that triggers another (e.g., "nut-free" + asking for Thai peanut sauce). Safety gap. | Med | Low | 🥉 |
 
-## Selected: Candidate 1 — Chat bubble layout
-Pure CSS/layout change, zero logic change — easiest non-regression to verify.
+## Winner: **#1 — Premium UI with interactive recipe cards**
+
+Rationale: The agent already produces beautifully structured recipe data on every response. Right now that structure is completely wasted — users see a wall of markdown text. Rendering it as an interactive recipe card (ingredient checkboxes, step-by-step progress, dietary badges, chef's tip callout) is the highest-leverage single change possible. Zero risk to agent functionality; purely additive behind a flag.

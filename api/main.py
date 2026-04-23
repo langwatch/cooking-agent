@@ -66,6 +66,7 @@ def get_flags():
     return {
         "dietary_pref_chips": flags.is_on("auto_dietary_pref_chips", default=False),
         "chat_bubble_layout": flags.is_on("auto_chat_bubble_layout", default=False),
+        "premium_ui": flags.is_on("auto_premium_ui", default=False),
     }
 
 
