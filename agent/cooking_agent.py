@@ -77,6 +77,7 @@ class CookingAgent:
             prompt = prompt + _SAFETY_ENHANCED_INSTRUCTION
         if flags.is_on("auto_dietary_safe_substitutions", default=False):
             prompt = prompt.rstrip() + "\n" + _DIETARY_SAFE_SUBSTITUTIONS_ADDENDUM + "\n"
+        self._prompt = prompt
         self._agent = Agent(
             model=OpenAIChat(id=self.model_id),
             description="World-class home-cooking assistant.",
@@ -92,8 +93,14 @@ class CookingAgent:
             # Multi-turn path: build full OpenAI messages array with conversation history.
             # Uses the raw OpenAI client so history is sent verbatim without Agno's
             # in-memory session accumulating across requests.
+            flags = load_flags()
+            system_content = (
+                self._prompt
+                if flags.is_on("auto_fix_history_prompt", default=False)
+                else SYSTEM_PROMPT
+            )
             client = OpenAI()
-            messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+            messages: list[dict] = [{"role": "system", "content": system_content}]
             messages.extend({"role": h["role"], "content": h["content"]} for h in history)
             messages.append({"role": "user", "content": message})
             resp = client.chat.completions.create(model=self.model_id, messages=messages)

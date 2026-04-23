@@ -1,22 +1,22 @@
-# Auto Scoreboard — 2026-04-23
+# Auto Scoreboard — 2026-04-23 (iteration 2)
 
 ## Evidence Summary
-- 294 traces in last 7 days. No thumbs-down annotations, but real user complaints confirmed.
-- **Trace `0ee0a635e5b25b7abe154d9e730c90ab`**: User said "I think the markdown is not rendering the numbers" — numbered lists invisible in chat UI.
-- **Trace `dafdb4a5e3bbb0d1a6e12f2466ae1315`**: User asked for dinner options "like 1, 2, 3" — implying list rendering was broken.
-- **Root cause confirmed in code**: `@tailwindcss/typography` is NOT in `web/package.json` and not in `tailwind.config.ts` plugins. Tailwind preflight resets `<ol>/<ul>` defaults (removes `list-style-type` and `padding`). The `prose-invert` class used throughout chat components has NO EFFECT without the plugin — numbered/bulleted lists render as unstyled flat text.
-- **Trace `d92027fa5543cc5efda81de34f984462`**: Off-topic question ("where is light mode") received ChatGPT instructions — agent has no cooking-topic guardrail.
-- **Code bug in `cooking_agent.py:96`**: Multi-turn history path uses base `SYSTEM_PROMPT` constant, ignoring flag addendums (`auto_safety_check_enhanced`, etc.).
+- **All 5 scenarios pass** (100% success rate, 5/5 baseline)
+- **324 traces** searched from last 7 days
+- **Previous iteration** (#18): Implemented `auto_markdown_prose_styling` fix — markdown-renderer.tsx now has styled `ol`/`ul`/`li` components; that fix is already in code.
+- **Real user conversation thread `c9d826f2`**: Multi-turn session with dietary requests, numbered list complaints, off-topic UI question
+- **Trace `14d418e2`**: User said "I expected to have a keto filter" (no keto chip exists)
+- **Trace `d92027fa`**: User asked "where is the light mode in this website?" → agent responded with ChatGPT-specific settings instructions (identity confusion)
+- **Critical code bug in `cooking_agent.py:96`**: Multi-turn history path uses bare `SYSTEM_PROMPT` constant instead of the flag-augmented `prompt` local variable built in `__init__`. All deployed flag improvements (`auto_safety_check_enhanced`, `auto_consistent_ingredient_quantities`, `auto_dietary_safe_substitutions`) are silently no-ops for every real multi-turn conversation.
 
 ## Candidates
 
 | # | Title | Evidence | Impact | Risk | Rank |
 |---|-------|----------|--------|------|------|
-| 1 | **Fix markdown prose styling for non-recipe responses** | Traces `0ee0a635`, `dafdb4a5` — user-confirmed broken numbered lists. Root cause: `prose-invert` class non-functional without `@tailwindcss/typography`. Affects ALL non-recipe responses (numbered options, follow-up clarifications, substitution lists). | HIGH | LOW | **1** |
-| 2 | **Fix multi-turn system prompt: apply flag addendums in history path** | `cooking_agent.py:96` — when `history` is present, uses base `SYSTEM_PROMPT` constant. Safety/dietary flags silently ignored for all multi-turn chats. | MED | LOW | 2 |
-| 3 | **Add off-topic guardrail to system prompt** | Trace `d92027fa` — user asked about UI light mode; got ChatGPT instructions. No on-topic rule in SYSTEM_PROMPT. | MED | MED | 3 |
+| 1 | **Fix multi-turn system prompt bug** — history path uses bare `SYSTEM_PROMPT`, ignoring all flag addendums | `cooking_agent.py:96`: `messages = [{"role": "system", "content": SYSTEM_PROMPT}]` — `prompt` local var built in `__init__` with flag injections is never stored as instance attr; silently bypasses safety + dietary + measurement flags in every multi-turn chat | **High** — affects all real users (conversations with history = real usage), silently degrades quality of every conversation after the first message | **Low** — 2-line fix: store `self._prompt = prompt`, use it in history path behind new flag | **1st** |
+| 2 | Add Keto dietary chip to UI | Trace `14d418e2` — explicit user complaint "I expected to have a keto filter"; current chips: Vegan, GF, Nut-Free, Dairy-Free | **Medium** | **Low** | 2nd |
+| 3 | Fix agent identity confusion | Trace `d92027fa` — agent responded as ChatGPT when asked about app UI | **Medium** | **Low** | 3rd |
 
-## Decision
-**Candidate 1** — Fix markdown prose styling.
+## Decision: Candidate 1
 
-User-confirmed complaint in traces, reproducible via code inspection, affects every numbered list and bullet response. Fix requires no new npm packages — just a `components` prop on ReactMarkdown and proper styling. Highest impact / lowest risk.
+The multi-turn system prompt bug silently renders every previously shipped flag-based improvement ineffective for real conversations. Every user who sends more than one message gets the bare system prompt — no safety warnings, no measurement consistency rules, no dietary compliance enforcement. The fix is trivial.
