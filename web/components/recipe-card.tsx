@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import ReactMarkdown from "react-markdown";
 import { Check, ChefHat, Clock, Utensils } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { parseRecipe, dietaryBadges } from "@/lib/parse-recipe";
+import { MarkdownRenderer } from "@/components/markdown-renderer";
 
 function badgeClass(badge: string): string {
   const b = badge.toLowerCase();
@@ -17,18 +17,14 @@ function badgeClass(badge: string): string {
   return "bg-muted/60 text-muted-foreground border-border/60";
 }
 
-export function RecipeCard({ content }: { content: string }) {
+export function RecipeCard({ content, proseEnabled }: { content: string; proseEnabled?: boolean }) {
   const recipe = parseRecipe(content);
 
   const [checkedIngredients, setCheckedIngredients] = useState<Set<string>>(new Set());
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
 
   if (!recipe) {
-    return (
-      <div className="prose-invert">
-        <ReactMarkdown>{content}</ReactMarkdown>
-      </div>
-    );
+    return <MarkdownRenderer content={content} proseEnabled={proseEnabled} />;
   }
 
   const badges = recipe.dietaryInfo ? dietaryBadges(recipe.dietaryInfo) : [];
