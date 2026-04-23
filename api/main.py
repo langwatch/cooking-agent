@@ -48,6 +48,7 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
     tier: str = Field("mid", pattern="^(cheap|mid|premium)$")
     history: list[HistoryMessage] = Field(default_factory=list, max_length=50)
+    session_id: str | None = Field(None, max_length=64)
 
 
 class ChatResponse(BaseModel):
@@ -67,6 +68,7 @@ def get_flags():
         "dietary_pref_chips": flags.is_on("auto_dietary_pref_chips", default=False),
         "chat_bubble_layout": flags.is_on("auto_chat_bubble_layout", default=False),
         "premium_ui": flags.is_on("auto_premium_ui", default=False),
+        "session_threading": flags.is_on("auto_session_threading", default=False),
     }
 
 
@@ -75,13 +77,14 @@ def chat(req: ChatRequest):
     flags = load_flags()
     if not flags.cooking_agent_enabled:
         raise HTTPException(status_code=503, detail="cooking_agent_enabled flag is OFF")
+    thread_id = req.session_id if flags.is_on("auto_session_threading", default=False) else None
     if flags.is_on("auto_conversation_history", default=False) and req.history:
         # Fresh agent per request: avoids cross-user history contamination and
         # passes the client-supplied history so follow-up messages get full context.
         agent = build_agent(tier=req.tier)
         history = [{"role": h.role, "content": h.content} for h in req.history]
-        reply = agent.chat(req.message, history=history)
+        reply = agent.chat(req.message, history=history, thread_id=thread_id)
     else:
         agent = _get_agent(req.tier)
-        reply = agent.chat(req.message)
+        reply = agent.chat(req.message, thread_id=thread_id)
     return ChatResponse(reply=reply, tier=req.tier)
