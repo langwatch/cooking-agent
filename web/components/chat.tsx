@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import ReactMarkdown from "react-markdown";
 import { Send, Loader2, ChefHat, Sparkles, ImagePlus, X } from "lucide-react";
 import { cn, API_URL } from "@/lib/utils";
 import { RecipeCard } from "@/components/recipe-card";
+import { MarkdownRenderer } from "@/components/markdown-renderer";
 
 type Message = { role: "user" | "assistant"; content: string; image?: string };
 type Tier = "cheap" | "mid" | "premium";
@@ -102,6 +102,7 @@ export default function Chat() {
   const [sessionId, setSessionId] = useState<string>("");
   const [activePrefs, setActivePrefs] = useState<Set<string>>(new Set());
   const [multimodalEnabled, setMultimodalEnabled] = useState(false);
+  const [markdownProse, setMarkdownProse] = useState(false);
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -117,6 +118,7 @@ export default function Chat() {
         setBubbleLayout(!!data?.chat_bubble_layout);
         setPremiumUI(!!data?.premium_ui);
         setMultimodalEnabled(!!data?.multimodal_images);
+        setMarkdownProse(!!data?.markdown_prose_styling);
         const threading = !!data?.session_threading;
         setSessionThreading(threading);
         if (threading) {
@@ -305,7 +307,7 @@ export default function Chat() {
                 <span className="text-[10px] text-muted-foreground/60 pl-1 flex items-center gap-1">
                   <ChefHat size={9} /> Chef
                 </span>
-                <RecipeCard content={m.content} />
+                <RecipeCard content={m.content} proseEnabled={markdownProse} />
               </div>
             )
           )}
@@ -470,17 +472,13 @@ export default function Chat() {
                 <div className={cn("text-xs font-semibold mb-1.5 tracking-wide", m.role === "user" ? "text-accent" : "text-muted-foreground")}>
                   {m.role === "user" ? "You" : "Chef"}
                 </div>
-                <div className="prose-invert">
-                  <ReactMarkdown>{m.content}</ReactMarkdown>
-                </div>
+                <MarkdownRenderer content={m.content} proseEnabled={markdownProse} />
               </div>
             </div>
           ) : (
             <div key={i} className={cn("rounded-lg px-4 py-3", m.role === "user" ? "bg-muted ml-8" : "bg-background mr-8 border border-border")}>
               <div className="text-xs text-muted-foreground mb-1">{m.role === "user" ? "You" : "Chef"}</div>
-              <div className="prose-invert">
-                <ReactMarkdown>{m.content}</ReactMarkdown>
-              </div>
+              <MarkdownRenderer content={m.content} proseEnabled={markdownProse} />
             </div>
           )
         )}

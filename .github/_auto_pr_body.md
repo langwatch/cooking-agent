@@ -1,20 +1,27 @@
-# auto: add multimodal image input via Gemini 2.0 Flash
+# auto: fix markdown prose styling for non-recipe chat responses
 
 ## Why
 
-265 traces show zero image-based queries, yet "fridge photo → recipe" and "dish recreation" are natural, high-value flows. The `GEMINI_API_KEY` is already wired into CI (confirmed via `GEMINI_API_KEY` env var). Adding image input behind a flag lets us ship the capability safely — flag stays off in production until validated, and existing text-only behavior is completely unchanged when the flag is off (image field is silently ignored).
+Two real user traces confirm that numbered lists and bullet points are invisible in the chat UI:
+- Trace `0ee0a635e5b25b7abe154d9e730c90ab`: User said "I think the markdown is not rendering the numbers" after receiving a numbered dinner-options list.
+- Trace `dafdb4a5e3bbb0d1a6e12f2466ae1315`: User asked the agent to format options "like 1, 2, 3" — implying current list rendering was broken.
 
-Note: The operator focus hint specified Gemini 1.5 Flash, which has been retired. The implementation uses **Gemini 2.0 Flash** (`gemini-2.0-flash`), the direct successor at the same cost/speed point.
+Root cause: `@tailwindcss/typography` is not installed and not in `tailwind.config.ts` plugins. Tailwind's preflight CSS resets `<ol>/<ul>` defaults — it strips `list-style-type` and `padding-left` from all list elements. The `prose-invert` class used throughout the chat components has **no effect** without the typography plugin, so every numbered list and bullet the agent produces renders as flat, unstyled text with no visible markers.
+
+This affects every non-recipe response: numbered dinner options, clarifying-question lists, substitution bullet points, multi-turn follow-ups.
 
 ## What
 
-- `api/main.py`: Added optional `image` field (base64 data URL, HTTP(S) URL, or raw base64) to `ChatRequest`. When `auto_multimodal_images` is ON and `image` is non-null, the `/chat` endpoint calls `_call_gemini_vision()` instead of the OpenAI agent. Added `multimodal_images` key to `/flags` response. Supports data URLs, HTTP image URLs (auto-fetched and base64-encoded), and raw base64.
-- `web/components/chat.tsx`: Added `ImagePlus` button in the Premium UI input row (shown only when `multimodal_images` flag is on). Image is selected via hidden file input, previewed as a thumbnail strip above the text field, and sent as a base64 data URL in the request body. User bubbles render the attached image above their text. The send button is enabled when either text OR an image is present.
-- `tests/test_multimodal_image.py`: New scenario test exercising the Gemini vision path. Skipped when `GEMINI_API_KEY` is absent or when the API quota is exhausted (external quota issues should not fail CI).
+- `web/components/markdown-renderer.tsx` *(new)*: Shared `MarkdownRenderer` component wrapping `react-markdown` with a `components` prop that applies explicit Tailwind utility classes (`list-decimal pl-5`, `list-disc pl-5`, `leading-relaxed`, etc.) when `proseEnabled` is true. Falls back to unstyled rendering when flag is off, preserving current behavior exactly.
+- `api/main.py`: Added `markdown_prose_styling` key to `/flags` response, reading the `auto_markdown_prose_styling` Flagsmith flag (default off).
+- `web/components/chat.tsx`: Replaced direct `ReactMarkdown` usage in bubble-layout and column-layout paths with `MarkdownRenderer`; reads new `markdown_prose_styling` flag and passes `proseEnabled` down.
+- `web/components/recipe-card.tsx`: Updated fallback (non-recipe) rendering path to use `MarkdownRenderer` with `proseEnabled` prop instead of direct `ReactMarkdown`.
+
+No new npm packages — uses only the already-installed `react-markdown`'s `components` prop.
 
 ## Flag
 
-- `auto_multimodal_images` — default **off**. Enable in Flagsmith "cooking" project → Development to activate. When off, any `image` field in `/chat` requests is silently ignored.
+- `auto_markdown_prose_styling` — default **off**. Enable in Flagsmith "cooking" project → Development to activate. When off, markdown renders as before (no visible change to existing behavior).
 
 ## Eval delta
 
@@ -24,33 +31,37 @@ Note: The operator focus hint specified Gemini 1.5 Flash, which has been retired
 | dietary_constraints | ✅ 4/4 | ✅ 4/4 |
 | safety_warning | ✅ 4/4 | ✅ 4/4 |
 | substitution | ✅ 4/4 | ✅ 4/4 |
-| multimodal_image (new) | — | ⏭️ skipped (Gemini quota exhausted during CI run; logic verified manually) |
+| multimodal_image | ⏭️ skipped | ⏭️ skipped |
+
+No regressions. No scenarios were modified.
 
 ## How to test
 
 ```bash
-git checkout auto/improve-20260423-125402
+git checkout auto/improve-20260423-134743
 pip install -e ".[dev]"
 
-# Backend
+# Start backend
 uvicorn api.main:app --port 8000
 
-# Enable flag in Flagsmith: auto_multimodal_images → ON
-# Then POST with an image:
-curl -X POST http://localhost:8000/chat \
-  -H 'Content-Type: application/json' \
-  -d '{"message":"what can I cook?","image":"https://picsum.photos/id/429/400/300.jpg"}'
+# Start frontend
+cd web && npm install && npm run dev
 
-# Run scenarios
+# Enable flag in Flagsmith: auto_markdown_prose_styling → ON
+# Open http://localhost:3000 and ask: "decide my dinner tonight"
+# The agent will ask clarifying questions with numbered/bulleted lists
+# → With flag ON: numbers and bullets are visible
+# → With flag OFF: flat unstyled text (current broken behavior)
+
+# Run scenarios (no backend flag change needed — pure frontend fix)
 pytest -v tests/ -m agent_test
 ```
 
 ## Rollback
 
-Flip `auto_multimodal_images` off in Flagsmith. No code revert needed — the entire image path is dead code when the flag is off.
+Flip `auto_markdown_prose_styling` off in Flagsmith. No code revert needed — the entire styled path is a conditional branch off the flag.
 
 ## Follow-ups
 
-- Add image input to the Legacy UI path (currently only wired to Premium UI)
-- Add conversation history support for image messages (currently image turns don't participate in history)
-- Consider streaming the Gemini response via SSE once `auto_streaming_response` flag is active
+- Candidate 2: Fix multi-turn system prompt — `cooking_agent.py:96` uses base `SYSTEM_PROMPT` in the history path, silently dropping flag addendums (`auto_safety_check_enhanced`, etc.) for all multi-turn chats.
+- Candidate 3: Add off-topic guardrail — trace `d92027fa` shows the agent answering questions about "light mode in this website" with ChatGPT instructions; the system prompt has no stay-on-topic rule.

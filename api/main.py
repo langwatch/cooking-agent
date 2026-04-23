@@ -135,6 +135,7 @@ def get_flags():
         "premium_ui": flags.is_on("auto_premium_ui", default=False),
         "session_threading": flags.is_on("auto_session_threading", default=False),
         "multimodal_images": flags.is_on("auto_multimodal_images", default=False),
+        "markdown_prose_styling": flags.is_on("auto_markdown_prose_styling", default=False),
     }
 
 
