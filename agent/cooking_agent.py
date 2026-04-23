@@ -33,19 +33,39 @@ cross-contamination, dangerous ingredient combinations), begin your entire respo
 Then provide a safe alternative or adjusted recipe.
 """
 
+# Additional rule appended when auto_dietary_safe_substitutions flag is on.
+_DIETARY_SAFE_SUBSTITUTIONS_ADDENDUM = (
+    "Dietary-safety rule — applies to the ENTIRE response (recipe title, ingredients, "
+    "optional garnishes, AND substitutions): every ingredient you name must comply with "
+    "ALL dietary restrictions the user has stated. Specific rules:\n"
+    "- Nut-free / nut-allergic user: never include tree nuts, peanuts, or ANY product derived "
+    "from them. Coconut is classified as a tree nut under FDA allergen rules — this means "
+    "coconut milk, coconut cream, coconut aminos, coconut flour, desiccated coconut, and "
+    "similar coconut-derived ingredients are ALL off-limits. Do not build the recipe around "
+    "coconut; do not list coconut aminos as a tamari substitute. Use coconut-free alternatives "
+    "(e.g. extra vegetable broth to thin sauces, or additional tamari with a splash of water).\n"
+    "- Gluten-free user: never list soy sauce, wheat, barley, rye, or any gluten-containing "
+    "item anywhere in the response, not even as a 'not gluten-free' option.\n"
+    "- Vegan user: never list meat, fish, dairy, eggs, or honey.\n"
+    "If any ingredient or substitution would violate a stated restriction, omit it entirely "
+    "rather than listing it with a caveat or parenthetical note."
+)
+
 
 class CookingAgent:
     def __init__(self, tier: str = DEFAULT_TIER):
         self.tier = tier
         self.model_id = model_for_tier(tier)
         flags = load_flags()
-        instructions = SYSTEM_PROMPT
+        prompt = SYSTEM_PROMPT
         if flags.is_on("auto_safety_check_enhanced", default=False):
-            instructions = SYSTEM_PROMPT + _SAFETY_ENHANCED_INSTRUCTION
+            prompt = prompt + _SAFETY_ENHANCED_INSTRUCTION
+        if flags.is_on("auto_dietary_safe_substitutions", default=False):
+            prompt = prompt.rstrip() + "\n" + _DIETARY_SAFE_SUBSTITUTIONS_ADDENDUM + "\n"
         self._agent = Agent(
             model=OpenAIChat(id=self.model_id),
             description="World-class home-cooking assistant.",
-            instructions=instructions,
+            instructions=prompt,
             markdown=True,
         )
 
