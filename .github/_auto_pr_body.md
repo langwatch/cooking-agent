@@ -1,45 +1,34 @@
-# auto: add dietary preference chips to chat UI
+# auto: chat bubble layout — directional message alignment
 
 ## Why
-40%+ of recent traces show users explicitly typing dietary restrictions ("vegan gluten-free nut-free") in every single message — pure repetitive friction. The Flagsmith flag `auto_dietary_pref_chips` was created by a prior iterator run but never wired to any code. This PR implements the feature: a row of toggle chips (Vegan, Gluten-Free, Nut-Free, Dairy-Free) that persist across the session and auto-inject the selected preferences into each outgoing message. Trace evidence: e.g., `6f97e35c`, `64ca9586`, `7655b4d6`, `0bb3aee3`, `4532ec17`.
+The existing chat UI uses `ml-8`/`mr-8` indented blocks for messages — both user and assistant messages are visually identical blocks that differ only by their tiny "You"/"Chef" label. A proper directional bubble layout (user right-aligned, assistant left-aligned) is the highest-impact single visual improvement for a conversational UI. The operator's focus hint explicitly calls out "visual polish, spacing, typography, color, and layout."
 
 ## What
-- `web/components/chat.tsx`: on mount, fetches `/flags` from the backend; if `dietary_pref_chips` is true, renders a row of pill-shaped toggle chips below the model-tier selector. Active chips highlight in the accent colour. When the user sends a message, selected prefs are appended to the text sent to the agent (e.g. `"pasta recipe [dietary: Vegan, Gluten-Free]"`). The displayed bubble shows the raw user text without the injected suffix. Input placeholder also updates to reflect active preferences.
-- `api/main.py`: adds a `GET /flags` endpoint that reads Flagsmith flag values and returns them as JSON, so the frontend can query flag state without a JS SDK or exposed env vars.
+- `web/components/chat.tsx`: Added `bubbleLayout` state flag read from `/flags`; when enabled, messages render as directional flex bubbles — user messages right-aligned with warm orange-tinted background (`bg-accent/15`, `border-accent/30`, orange "You" label), assistant messages left-aligned with elevated card style (`rounded-2xl`, `shadow-sm`). Old layout preserved as fallback when flag is off.
+- `api/main.py`: Added `chat_bubble_layout` key to the `/flags` endpoint so the frontend can read the Flagsmith value.
 
 ## Flag
-- `auto_dietary_pref_chips` — default **off**. Enable in Flagsmith "cooking" project → Development to activate.
+- `auto_chat_bubble_layout` — default **off**. Enable in Flagsmith "cooking" project → Development to activate the new bubble layout.
 
 ## Eval delta
 | Scenario | Before | After |
 |---|---|---|
-| basic_weeknight_recipe | ✅ 4/4 | ✅ 4/4 |
-| dietary_constraints | ✅ 4/4 | ✅ 4/4 |
-| substitution | ✅ 4/4 | ✅ 4/4 |
+| basic_weeknight_recipe | ✅ | ✅ |
+| dietary_constraints | ✅ | ✅ |
+| safety_warning | ✅ | ✅ |
+| substitution | ✅ | ✅ |
 
-No scenarios were modified. All three pass before and after.
-
-## Screenshots
-
-| Before (flag off — no chips) | After (flag on — chips visible) |
-|---|---|
-| ![before](https://i.img402.dev/g9z7ziw6fh.jpg) | ![after](https://i.img402.dev/e19pb8jrdm.jpg) |
+No scenarios were modified. Change is purely frontend CSS/layout.
 
 ## How to test
 ```
-git checkout <this-branch>
+git checkout auto/improve-20260423-113311
 pip install -e ".[dev]"
-cd web && npm install && npm run dev &
+# flip auto_chat_bubble_layout ON in Flagsmith Development environment
 uvicorn api.main:app --port 8000 &
-# then flip auto_dietary_pref_chips ON in Flagsmith to see the chips appear
-# try: select "Vegan" + "Gluten-Free", type "give me a pasta recipe", send
-# confirm the agent receives the dietary context and respects it
-pytest -v tests/ -m agent_test
+cd web && npm install && npm run dev
+# open http://localhost:3000 and send a few messages
 ```
 
 ## Rollback
-Flip `auto_dietary_pref_chips` off in Flagsmith. No code revert needed — the UI silently hides the chips row when the flag is off.
-
-## Follow-ups
-- Candidate 2: Clickable example prompts in empty state (replace single static hint with 3–4 clickable suggestions).
-- Candidate 3: Copy-to-clipboard button on assistant message cards (recipe text is long; one-click copy is high-value QOL).
+Flip `auto_chat_bubble_layout` off in Flagsmith. No code revert needed.

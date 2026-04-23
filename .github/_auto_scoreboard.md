@@ -1,29 +1,15 @@
-# Auto-iterator Scoreboard — 2026-04-23
+# Auto Scoreboard — 2026-04-23
 
-## Baseline
-- Scenarios: 3/3 passed (100%)
-- Traces searched: 146 traces over last 7 days
+## Traces summary
+200 traces from last 7 days, all healthy (no thumbs-down annotations, no errors). Scenarios 4/4 green. Operator focus: **design improvements to chat UI**.
 
-## Evidence from traces & code inspection
-- 40%+ of all traces include dietary restriction queries ("vegan gluten-free nut-free") — users must retype these every single message.
-- Flag `auto_dietary_pref_chips` was created by a prior iterator run but **never implemented** in any code file.
-- UI has zero dietary controls beyond a model-tier dropdown; empty state shows only a single static hint.
-- No conversation-reset button, no copy-to-clipboard on assistant messages.
-- Error state shows raw HTTP status with no retry button.
+## Candidates
 
-## Candidate Changes
+| # | Title | Evidence | Impact | Risk | Score |
+|---|---|---|---|---|---|
+| 1 | **Chat bubble layout** — right-align user messages as warm-tinted rounded bubbles; left-align assistant messages as elevated cards | `chat.tsx` uses `ml-8`/`mr-8` indents — no directional alignment; messages look identical without tiny "You"/"Chef" label. Bubble layout is the single highest-impact visual improvement for a chat UI | High | Low | **1st** |
+| 2 | Header + page polish — gradient, sticky input, subtle separator | Page header is bare `text-2xl` with no visual weight | Med | Low | 2nd |
+| 3 | Implement `auto_starter_prompts` clickable chips (flag exists, no code yet) | Flagsmith flag registered, zero frontend implementation | Med | Med | 3rd |
 
-| # | Title | Evidence | Impact | Risk | Rank (I/R) |
-|---|-------|----------|--------|------|------------|
-| 1 | **Dietary preference chips (toggle chips UI)** | 40%+ traces show repeated dietary constraint text; `auto_dietary_pref_chips` flag exists but unimplemented; high user friction typing same prefs each message | **High** | Low | ⭐ 1st |
-| 2 | Clickable example prompts in empty state | Current empty state is a single static hint; users may not know what to ask; low discoverability | Med | Low | 2nd |
-| 3 | Copy-to-clipboard button on assistant messages | Recipes are long markdown; copying to use elsewhere is a common action with no affordance | Med | Low | 3rd |
-
-## Decision
-**Candidate 1 — Dietary preference chips** wins.
-
-Rationale: Clear trace evidence (typing "vegan gluten-free nut-free" in every message is high friction), an existing Flagsmith flag that was never wired up, and the operator hint "ui ui and more ui!" all align. The flag `auto_dietary_pref_chips` is used; default remains off so no live users are affected until a human enables it.
-
-Follow-ups (future runs):
-- Candidate 2: clickable example prompts
-- Candidate 3: copy-to-clipboard on assistant messages
+## Selected: Candidate 1 — Chat bubble layout
+Pure CSS/layout change, zero logic change — easiest non-regression to verify.
