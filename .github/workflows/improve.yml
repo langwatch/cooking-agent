@@ -33,6 +33,7 @@ jobs:
     timeout-minutes: 45
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
       LANGWATCH_ENDPOINT: "https://app.langwatch.ai"
       FLAGSMITH_ENVIRONMENT_KEY: ${{ secrets.FLAGSMITH_ENVIRONMENT_KEY }}
