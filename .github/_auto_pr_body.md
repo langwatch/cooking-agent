@@ -1,27 +1,22 @@
-# auto: fix markdown prose styling for non-recipe chat responses
+# auto: fix flag-augmented prompt bypassed in multi-turn conversations
 
 ## Why
 
-Two real user traces confirm that numbered lists and bullet points are invisible in the chat UI:
-- Trace `0ee0a635e5b25b7abe154d9e730c90ab`: User said "I think the markdown is not rendering the numbers" after receiving a numbered dinner-options list.
-- Trace `dafdb4a5e3bbb0d1a6e12f2466ae1315`: User asked the agent to format options "like 1, 2, 3" — implying current list rendering was broken.
+Code inspection of `agent/cooking_agent.py:96` reveals a silent bug: the `chat()` method's multi-turn path (used whenever a user sends a second message) passes bare `SYSTEM_PROMPT` as the system message instead of the flag-augmented `prompt` built in `__init__`. The `prompt` local variable collects all flag-based instruction injections (`auto_safety_check_enhanced`, `auto_consistent_ingredient_quantities`, `auto_dietary_safe_substitutions`) but is never stored as an instance attribute, so it is unreachable in `chat()`.
 
-Root cause: `@tailwindcss/typography` is not installed and not in `tailwind.config.ts` plugins. Tailwind's preflight CSS resets `<ol>/<ul>` defaults — it strips `list-style-type` and `padding-left` from all list elements. The `prose-invert` class used throughout the chat components has **no effect** without the typography plugin, so every numbered list and bullet the agent produces renders as flat, unstyled text with no visible markers.
+This means **every real multi-turn conversation** — every user who sends more than one message — receives the bare base system prompt with none of the deployed safety, measurement accuracy, or dietary compliance rules applied. All three flag-based prompt improvements shipped in previous iterations are silently no-ops for the most common real-world usage pattern.
 
-This affects every non-recipe response: numbered dinner options, clarifying-question lists, substitution bullet points, multi-turn follow-ups.
+Confirmed by real conversation traces: thread `c9d826f2` (traces `93bebcf7`, `4e6afe15`, `dafdb4a5`, `0ee0a635`, `d92027fa`) shows a real user going through a multi-turn session that would have bypassed all flag instructions entirely.
 
 ## What
 
-- `web/components/markdown-renderer.tsx` *(new)*: Shared `MarkdownRenderer` component wrapping `react-markdown` with a `components` prop that applies explicit Tailwind utility classes (`list-decimal pl-5`, `list-disc pl-5`, `leading-relaxed`, etc.) when `proseEnabled` is true. Falls back to unstyled rendering when flag is off, preserving current behavior exactly.
-- `api/main.py`: Added `markdown_prose_styling` key to `/flags` response, reading the `auto_markdown_prose_styling` Flagsmith flag (default off).
-- `web/components/chat.tsx`: Replaced direct `ReactMarkdown` usage in bubble-layout and column-layout paths with `MarkdownRenderer`; reads new `markdown_prose_styling` flag and passes `proseEnabled` down.
-- `web/components/recipe-card.tsx`: Updated fallback (non-recipe) rendering path to use `MarkdownRenderer` with `proseEnabled` prop instead of direct `ReactMarkdown`.
+- `agent/cooking_agent.py`: Store the assembled `prompt` as `self._prompt` in `__init__`. In `chat()`, when `history` is provided and the `auto_fix_history_prompt` flag is on, use `self._prompt` as the system message instead of the bare `SYSTEM_PROMPT` constant.
 
-No new npm packages — uses only the already-installed `react-markdown`'s `components` prop.
+The change is 6 lines: 1 new instance attribute assignment + 5 lines for the flag-gated conditional.
 
 ## Flag
 
-- `auto_markdown_prose_styling` — default **off**. Enable in Flagsmith "cooking" project → Development to activate. When off, markdown renders as before (no visible change to existing behavior).
+- `auto_fix_history_prompt` — default **off**. Enable in Flagsmith "cooking" project → Development to activate. When on, multi-turn conversations receive the full flag-augmented system prompt (including any active safety/dietary/measurement instructions). When off, existing behavior is preserved exactly.
 
 ## Eval delta
 
@@ -29,39 +24,35 @@ No new npm packages — uses only the already-installed `react-markdown`'s `comp
 |---|---|---|
 | basic_weeknight_recipe | ✅ 4/4 | ✅ 4/4 |
 | dietary_constraints | ✅ 4/4 | ✅ 4/4 |
+| multimodal_image | ✅ 4/4 | ✅ 4/4 |
 | safety_warning | ✅ 4/4 | ✅ 4/4 |
 | substitution | ✅ 4/4 | ✅ 4/4 |
-| multimodal_image | ⏭️ skipped | ⏭️ skipped |
 
-No regressions. No scenarios were modified.
+No regressions. All scenarios are single-turn so they test the unaffected code path; this fix targets the `history` branch which is exercised only in real multi-turn usage.
 
 ## How to test
 
 ```bash
-git checkout auto/improve-20260423-134743
+git checkout auto/improve-20260423-153627
 pip install -e ".[dev]"
-
-# Start backend
-uvicorn api.main:app --port 8000
-
-# Start frontend
-cd web && npm install && npm run dev
-
-# Enable flag in Flagsmith: auto_markdown_prose_styling → ON
-# Open http://localhost:3000 and ask: "decide my dinner tonight"
-# The agent will ask clarifying questions with numbered/bulleted lists
-# → With flag ON: numbers and bullets are visible
-# → With flag OFF: flat unstyled text (current broken behavior)
-
-# Run scenarios (no backend flag change needed — pure frontend fix)
 pytest -v tests/ -m agent_test
+
+# To exercise the fix live:
+# 1. Enable auto_fix_history_prompt + any of:
+#    auto_safety_check_enhanced / auto_dietary_safe_substitutions / auto_consistent_ingredient_quantities
+#    in Flagsmith → Development
+# 2. uvicorn api.main:app --port 8000
+# 3. Send a multi-turn request:
+#    POST /chat {"message": "now make it vegan", "history": [{"role":"user","content":"give me a pasta recipe"}, {"role":"assistant","content":"..."}]}
+# With flag OFF: safety/dietary rules absent from system prompt
+# With flag ON: full augmented prompt applied
 ```
 
 ## Rollback
 
-Flip `auto_markdown_prose_styling` off in Flagsmith. No code revert needed — the entire styled path is a conditional branch off the flag.
+Flip `auto_fix_history_prompt` off in Flagsmith. No code revert needed.
 
 ## Follow-ups
 
-- Candidate 2: Fix multi-turn system prompt — `cooking_agent.py:96` uses base `SYSTEM_PROMPT` in the history path, silently dropping flag addendums (`auto_safety_check_enhanced`, etc.) for all multi-turn chats.
-- Candidate 3: Add off-topic guardrail — trace `d92027fa` shows the agent answering questions about "light mode in this website" with ChatGPT instructions; the system prompt has no stay-on-topic rule.
+- Add Keto dietary chip: trace `14d418e2` shows a user saying "I expected to have a keto filter." Current chips are Vegan, GF, Nut-Free, Dairy-Free.
+- Fix agent identity confusion: trace `d92027fa` shows the agent responding with ChatGPT-specific instructions when a user asked about "light mode in this website." System prompt has no identity anchor or on-topic guardrail.
