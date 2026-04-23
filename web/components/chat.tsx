@@ -23,13 +23,17 @@ export default function Chat() {
   const [slow, setSlow] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [chipsEnabled, setChipsEnabled] = useState(false);
+  const [bubbleLayout, setBubbleLayout] = useState(false);
   const [activePrefs, setActivePrefs] = useState<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetch(`${API_URL}/flags`)
       .then((r) => r.json())
-      .then((data) => setChipsEnabled(!!data?.dietary_pref_chips))
+      .then((data) => {
+        setChipsEnabled(!!data?.dietary_pref_chips);
+        setBubbleLayout(!!data?.chat_bubble_layout);
+      })
       .catch(() => {});
   }, []);
 
@@ -134,22 +138,53 @@ export default function Chat() {
             Try: &quot;A 30-minute weeknight pasta using what&apos;s usually in a pantry.&quot;
           </p>
         )}
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className={cn(
-              "rounded-lg px-4 py-3",
-              m.role === "user" ? "bg-muted ml-8" : "bg-background mr-8 border border-border",
-            )}
-          >
-            <div className="text-xs text-muted-foreground mb-1">
-              {m.role === "user" ? "You" : "Chef"}
+        {messages.map((m, i) =>
+          bubbleLayout ? (
+            <div
+              key={i}
+              className={cn(
+                "flex",
+                m.role === "user" ? "justify-end" : "justify-start",
+              )}
+            >
+              <div
+                className={cn(
+                  "rounded-2xl px-4 py-3 max-w-[82%]",
+                  m.role === "user"
+                    ? "bg-accent/15 border border-accent/30 text-foreground"
+                    : "bg-card border border-border shadow-sm",
+                )}
+              >
+                <div
+                  className={cn(
+                    "text-xs font-semibold mb-1.5 tracking-wide",
+                    m.role === "user" ? "text-accent" : "text-muted-foreground",
+                  )}
+                >
+                  {m.role === "user" ? "You" : "Chef"}
+                </div>
+                <div className="prose-invert">
+                  <ReactMarkdown>{m.content}</ReactMarkdown>
+                </div>
+              </div>
             </div>
-            <div className="prose-invert">
-              <ReactMarkdown>{m.content}</ReactMarkdown>
+          ) : (
+            <div
+              key={i}
+              className={cn(
+                "rounded-lg px-4 py-3",
+                m.role === "user" ? "bg-muted ml-8" : "bg-background mr-8 border border-border",
+              )}
+            >
+              <div className="text-xs text-muted-foreground mb-1">
+                {m.role === "user" ? "You" : "Chef"}
+              </div>
+              <div className="prose-invert">
+                <ReactMarkdown>{m.content}</ReactMarkdown>
+              </div>
             </div>
-          </div>
-        ))}
+          ),
+        )}
         {loading && (
           <div className="flex flex-col gap-1 text-muted-foreground text-sm">
             <div className="flex items-center gap-2">
