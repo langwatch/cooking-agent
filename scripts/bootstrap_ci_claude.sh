@@ -8,12 +8,12 @@ echo "=== installing claude code ==="
 npm i -g @anthropic-ai/claude-code@latest
 
 echo "=== installing rogeriochaves/skills ==="
-# Not fatal if this fails; iterator can still run without skills.
-npx -y skills add rogeriochaves/skills -g || echo "skills install failed; continuing"
+# -y on the skills subcommand auto-accepts the "select skills" picker; without
+# it CI gets an EOF'd interactive prompt and silently installs zero skills.
+npx -y skills add rogeriochaves/skills -g -y || echo "skills install failed; continuing"
 
 echo "=== installing img402/skills (screenshot hosting for UI iterations) ==="
-# Free tier: <1MB, 7-day retention, no API key needed. See https://img402.dev
-npx -y skills add img402/skills -g || echo "img402 skills install failed; continuing"
+npx -y skills add img402/skills -g -y || echo "img402 skills install failed; continuing"
 
 echo "=== MCP preflight ==="
 # Project-scoped MCP lives in .mcp.json at the repo root; Claude Code
@@ -24,7 +24,11 @@ if [ -z "${LANGWATCH_API_KEY:-}" ]; then
   echo "::error::LANGWATCH_API_KEY is empty; langwatch MCP cannot start. @aryansharma28" >&2
   exit 1
 fi
+# --mcp-config is required in headless mode: project-scoped .mcp.json normally
+# needs an interactive trust prompt that never fires under `claude -p`, so the
+# langwatch server silently doesn't load. Explicit --mcp-config bypasses trust.
 mcp_probe=$(timeout 90 claude -p "output only 'OK' if you have a tool named mcp__langwatch__search_traces, otherwise output only 'MISSING'" \
+  --mcp-config .mcp.json \
   --permission-mode bypassPermissions --output-format text 2>&1 | tail -1)
 if [ "$mcp_probe" != "OK" ]; then
   echo "::error::langwatch MCP did not load (probe returned: $mcp_probe). Check .mcp.json and LANGWATCH_API_KEY. @aryansharma28" >&2
