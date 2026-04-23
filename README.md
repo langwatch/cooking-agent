@@ -13,6 +13,17 @@ python -m agent chat "give me a 30-minute weeknight pasta for two"
 make test
 ```
 
+### Flagsmith keys — don't confuse them
+
+Two different keys, both live under the word "Flagsmith" and it's an easy footgun:
+
+| Env var | What it is | Where to get it | Used by |
+|---|---|---|---|
+| `FLAGSMITH_ENVIRONMENT_KEY` | **Environment SDK key** — short random string (e.g. `giyCqfv7kHmWKmKzbVkC7K`). Read-only, scoped to one environment, safe to ship to clients. | app.flagsmith.com → project → environment → **SDK Keys** | Python backend (`agent/flags.py`) to read flag state at runtime |
+| `FLAGSMITH_API_TOKEN` | **Personal admin API token** — 40-char hex. Can manage flags org-wide. Keep secret. | app.flagsmith.com → **Account Settings → Keys** | The CI self-improvement loop, and any admin API calls |
+
+If the backend `/flags` endpoint keeps returning defaults (all `false`) even after toggling flags in the UI, the deployed `FLAGSMITH_ENVIRONMENT_KEY` is almost certainly set to the admin token by mistake — the Python SDK silently falls back to defaults when the key is wrong.
+
 ### Flags (v0.1)
 | Flag | Default | Purpose |
 |---|---|---|
