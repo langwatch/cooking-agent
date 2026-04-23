@@ -1,17 +1,26 @@
-# auto: thread traces per session so conversations group in LangWatch
+# auto: premium UI with interactive recipe cards
+
+> @aryansharma28 img402 upload broken — screenshots committed to .github/_auto_screenshots/ instead
 
 ## Why
-239 traces in the last 7 days all appear as isolated root traces in LangWatch — multi-turn conversations (e.g. traces `2f8f5f558589310067df55ae1e5f7344` and `4c57edaa3ccdf751aa307e6d5fc3085a` are the same "hey → diet question" session) show up as unrelated entries, making it impossible to replay or debug a full conversation in the UI. Grouping traces by a stable `session_id` (set as `metadata.thread_id` in LangWatch) solves this directly. As a bonus, persisting messages in `localStorage` means a page refresh no longer wipes the conversation.
+
+The agent already outputs a perfectly structured recipe format on every single response (title, cuisine/time, ingredient groups, numbered steps, dietary info, chef's tip), but the frontend renders it as a flat wall of markdown text. 224 traces over 7 days confirm 100% of recipe responses follow this structure — yet none of that structure is surfaced to the user. Transforming these responses into interactive recipe cards makes the cooking-along experience dramatically better and uses zero additional API calls.
+
+The operator focus hint ("go wild on the design, make it the best one ever!") confirms UI is the right investment area.
 
 ## What
-- `web/components/chat.tsx`: On mount, generates or loads a stable UUID from `localStorage` as `cooking_session_id`. When `session_threading` flag is on, includes `session_id` in every `/chat` POST and persists the message history to `localStorage` (`cooking_session_messages`) so refresh restores the conversation.
-- `api/main.py`: Adds optional `session_id` field (max 64 chars) to `ChatRequest`; exposes `session_threading` boolean in the `/flags` response; passes `session_id` → `thread_id` to the agent when the flag is on.
-- `agent/cooking_agent.py`: Adds `thread_id` parameter to `chat()`; when provided, calls `langwatch.get_current_trace().update(metadata={"thread_id": thread_id})` so every turn of a conversation is filed under the same thread in LangWatch.
+
+- `web/lib/parse-recipe.ts`: New parser that detects recipe responses and extracts title, meta (cuisine + time), ingredient groups, numbered steps, dietary info, and chef's tip from the agent's consistent output format.
+- `web/components/recipe-card.tsx`: New `RecipeCard` component renders parsed recipes as a structured two-column card — interactive ingredient checklist on the left (per-item checkboxes, checked/total counter), numbered instruction steps on the right (click to mark complete), dietary badges at the top, and a chef's tip callout at the bottom. Non-recipe responses fall back to markdown.
+- `web/components/chat.tsx`: When `premium_ui` flag is on, replaces the entire chat layout: gradient hero header with chef hat icon + model tier selector, dietary filter chips in a toolbar, 2×2 starter prompt grid for the empty state, right-aligned user bubbles, animated bouncing-dots loading indicator, and `RecipeCard` for all assistant messages. Legacy layout is preserved verbatim when flag is off.
+- `api/main.py`: Exposes `premium_ui` key from the `/flags` endpoint.
 
 ## Flag
-- `auto_session_threading` — default **off**. Enable in Flagsmith "cooking" project → Development to activate.
+
+- `auto_premium_ui` — default **off**. Enable in Flagsmith "cooking" project → Development to activate.
 
 ## Eval delta
+
 | Scenario | Before | After |
 |---|---|---|
 | basic_weeknight_recipe | ✅ | ✅ |
@@ -19,22 +28,38 @@
 | safety_warning | ✅ | ✅ |
 | substitution | ✅ | ✅ |
 
-No scenarios were modified. The `thread_id` path is only taken when the flag is on (off by default); agent behaviour is unchanged.
+No scenarios were modified. Changes are purely in the frontend rendering layer.
+
+## Screenshots
+
+> img402.dev was unreachable. Screenshots committed to `.github/_auto_screenshots/` for download.
+
+| State | File |
+|---|---|
+| Before (flag off) | `.github/_auto_screenshots/before_ui.jpg` |
+| After — empty state | `.github/_auto_screenshots/after_empty_state.jpg` |
+| After — recipe card | `.github/_auto_screenshots/after_recipe_card.jpg` |
+
+Visual diff: the "after empty" state shows a gradient hero header with orange gradient "Cooking Agent" text, chef-hat icon, compact tier dropdown, and a 2×2 starter prompt grid. The "after recipe" state shows right-aligned user bubbles and a structured dark recipe card with title + time badge, dietary badges, a two-column body (ingredient checklist with checkboxes on the left, orange numbered step circles on the right), and a chef's tip bar.
 
 ## How to test
+
 ```
-git checkout auto/improve-20260423-121036
+git checkout auto/improve-20260423-115315
 pip install -e ".[dev]"
-# flip auto_session_threading ON in Flagsmith Development environment
 uvicorn api.main:app --port 8000 &
-cd web && npm install && npm run dev
-# open http://localhost:3000, send a few messages, refresh — history is restored
-# check LangWatch: all turns of the session appear under one thread
+cd web && npm install && npm run dev &
+# Flip auto_premium_ui ON in Flagsmith → Development
+# Visit http://localhost:3000 — try "30-minute weeknight pasta for two"
+# Verify: recipe card with interactive checkboxes renders
+cd .. && pytest -v tests/ -m agent_test
 ```
 
 ## Rollback
-Flip `auto_session_threading` off in Flagsmith. No code revert needed. `localStorage` entries are harmless if the flag is off.
+
+Flip `auto_premium_ui` off in Flagsmith. No code revert needed.
 
 ## Follow-ups
-- The `session_id` currently lives only in `localStorage` — private/incognito tabs and new browsers start fresh sessions, which is correct behaviour. Cross-device continuity would require server-side session storage.
-- `cooking_session_messages` in `localStorage` grows unboundedly; a future iteration could cap it at N messages or add a "Clear chat" button.
+
+- Multi-turn meal planning scenario to exercise the `auto_conversation_history` flag path.
+- Allergen confusion red-team scenario: user says "nut-free" but asks for Thai peanut sauce.
