@@ -2,7 +2,11 @@
   "mcpServers": {
     "langwatch": {
       "command": "npx",
-      "args": ["-y", "@langwatch/mcp-server", "--apiKey", "${LANGWATCH_API_KEY}"]
+      "args": ["-y", "@langwatch/mcp-server"],
+      "env": {
+        "LANGWATCH_API_KEY": "${LANGWATCH_API_KEY}",
+        "LANGWATCH_ENDPOINT": "${LANGWATCH_ENDPOINT}"
+      }
     }
   }
 }

@@ -34,6 +34,7 @@ jobs:
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       LANGWATCH_API_KEY: ${{ secrets.LANGWATCH_API_KEY }}
+      LANGWATCH_ENDPOINT: "https://app.langwatch.ai"
       FLAGSMITH_ENVIRONMENT_KEY: ${{ secrets.FLAGSMITH_ENVIRONMENT_KEY }}
       FLAGSMITH_API_TOKEN: ${{ secrets.FLAGSMITH_API_TOKEN }}
       FLAGSMITH_PROJECT_ID: "37795"
