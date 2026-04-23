@@ -23,18 +23,27 @@ npx -y skills add rogeriochaves/skills -g -y || echo "skills install failed; con
 echo "=== installing img402/skills (screenshot hosting for UI iterations) ==="
 npx -y skills add img402/skills -g -y || echo "img402 skills install failed; continuing"
 
-echo "=== MCP preflight ==="
-# Project-scoped MCP lives in .mcp.json at the repo root; Claude Code
-# auto-discovers it. Verify langwatch tools actually load before the
-# iterator starts — a silent MCP failure wastes the full 40-min budget
-# and produces a useless "mcp unavailable" PR.
+echo "=== rendering .mcp.json from template ==="
+# Claude Code does not reliably expand ${VAR} inside a committed .mcp.json's
+# env block — the MCP subprocess received the literal "${LANGWATCH_API_KEY}"
+# string and LangWatch rejected it with 401. Render the template now so the
+# real secret is baked into the file Claude reads. .mcp.json is gitignored.
 if [ -z "${LANGWATCH_API_KEY:-}" ]; then
   echo "::error::LANGWATCH_API_KEY is empty; langwatch MCP cannot start. @aryansharma28" >&2
   exit 1
 fi
+: "${LANGWATCH_ENDPOINT:=https://app.langwatch.ai}"
+export LANGWATCH_API_KEY LANGWATCH_ENDPOINT
+envsubst < .mcp.json.template > .mcp.json
+# Sanity-check: template vars must not remain literal in the rendered file.
+if grep -q '\${LANGWATCH_' .mcp.json; then
+  echo "::error::envsubst left unexpanded \${LANGWATCH_*} in .mcp.json. @aryansharma28" >&2
+  exit 1
+fi
+
+echo "=== MCP preflight: tool-exists probe ==="
 # --mcp-config is required in headless mode: project-scoped .mcp.json normally
-# needs an interactive trust prompt that never fires under `claude -p`, so the
-# langwatch server silently doesn't load. Explicit --mcp-config bypasses trust.
+# needs an interactive trust prompt that never fires under `claude -p`.
 mcp_probe=$(timeout 90 claude -p "output only 'OK' if you have a tool named mcp__langwatch__search_traces, otherwise output only 'MISSING'" \
   --mcp-config .mcp.json \
   --permission-mode bypassPermissions --output-format text 2>&1 | tail -1)
@@ -43,6 +52,20 @@ if [ "$mcp_probe" != "OK" ]; then
   exit 1
 fi
 echo "langwatch MCP loaded OK"
+
+echo "=== MCP preflight: real auth probe ==="
+# Existence-only probe doesn't catch 401s — the iterator wasted 5+ min and
+# opened an abort-PR before we knew auth was broken. Actually invoke
+# search_traces so LangWatch validates the key during bootstrap.
+auth_probe=$(timeout 120 claude -p "Invoke the mcp__langwatch__search_traces tool with arguments {\"startDate\":\"2024-01-01T00:00:00Z\",\"endDate\":\"2024-01-01T00:01:00Z\",\"pageSize\":1}. After the tool returns, output ONLY one line: 'AUTH_OK' if the tool call succeeded (empty result is fine), or 'AUTH_FAIL: <first 120 chars of the error text>' if it returned any error." \
+  --mcp-config .mcp.json \
+  --permission-mode bypassPermissions --output-format text 2>&1)
+auth_last=$(echo "$auth_probe" | tail -5)
+if ! echo "$auth_last" | grep -q "AUTH_OK"; then
+  echo "::error::langwatch MCP auth probe failed. Tail: $auth_last" >&2
+  exit 1
+fi
+echo "langwatch MCP auth OK"
 
 echo "=== claude version ==="
 claude --version || true

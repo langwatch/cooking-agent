@@ -15,3 +15,6 @@ build/
 .ruff_cache/
 traces_dump/
 image.png
+
+# Rendered from .mcp.json.template at CI/dev bootstrap time (contains real secrets).
+.mcp.json
