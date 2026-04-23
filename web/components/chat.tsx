@@ -15,6 +15,38 @@ const DIETARY_CHIPS: { label: string; value: string }[] = [
   { label: "🥛 Dairy-Free", value: "Dairy-Free" },
 ];
 
+function getOrCreateSessionId(): string {
+  try {
+    const stored = localStorage.getItem("cooking_session_id");
+    if (stored) return stored;
+    const id = crypto.randomUUID();
+    localStorage.setItem("cooking_session_id", id);
+    return id;
+  } catch {
+    return crypto.randomUUID();
+  }
+}
+
+const SESSION_MESSAGES_KEY = "cooking_session_messages";
+
+function loadPersistedMessages(): Message[] {
+  try {
+    const raw = localStorage.getItem(SESSION_MESSAGES_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as Message[];
+  } catch {
+    return [];
+  }
+}
+
+function persistMessages(msgs: Message[]): void {
+  try {
+    localStorage.setItem(SESSION_MESSAGES_KEY, JSON.stringify(msgs));
+  } catch {
+    // localStorage quota exceeded or unavailable — ignore
+  }
+}
+
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -24,15 +56,25 @@ export default function Chat() {
   const [error, setError] = useState<string | null>(null);
   const [chipsEnabled, setChipsEnabled] = useState(false);
   const [bubbleLayout, setBubbleLayout] = useState(false);
+  const [sessionThreading, setSessionThreading] = useState(false);
+  const [sessionId, setSessionId] = useState<string>("");
   const [activePrefs, setActivePrefs] = useState<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const sid = getOrCreateSessionId();
+    setSessionId(sid);
+
     fetch(`${API_URL}/flags`)
       .then((r) => r.json())
       .then((data) => {
         setChipsEnabled(!!data?.dietary_pref_chips);
         setBubbleLayout(!!data?.chat_bubble_layout);
+        const threading = !!data?.session_threading;
+        setSessionThreading(threading);
+        if (threading) {
+          setMessages(loadPersistedMessages());
+        }
       })
       .catch(() => {});
   }, []);
@@ -69,24 +111,33 @@ export default function Chat() {
       activePrefs.size > 0 ? ` [dietary: ${[...activePrefs].join(", ")}]` : "";
     const messageWithPrefs = text + prefContext;
 
-    setMessages((m) => [...m, { role: "user", content: text }]);
+    const nextMessages: Message[] = [...messages, { role: "user", content: text }];
+    setMessages(nextMessages);
     setLoading(true);
     try {
       // `messages` still holds the conversation *before* the current user turn
       // (React state update above is async). Send it as history so the backend
       // can provide full conversation context when auto_conversation_history is on.
       const history = messages.map((m) => ({ role: m.role, content: m.content }));
+      const body: Record<string, unknown> = { message: messageWithPrefs, tier, history };
+      if (sessionThreading && sessionId) {
+        body.session_id = sessionId;
+      }
       const res = await fetch(`${API_URL}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: messageWithPrefs, tier, history }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const body = await res.text();
-        throw new Error(`${res.status}: ${body}`);
+        const errBody = await res.text();
+        throw new Error(`${res.status}: ${errBody}`);
       }
       const data = (await res.json()) as { reply: string };
-      setMessages((m) => [...m, { role: "assistant", content: data.reply }]);
+      const withReply: Message[] = [...nextMessages, { role: "assistant", content: data.reply }];
+      setMessages(withReply);
+      if (sessionThreading) {
+        persistMessages(withReply);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {

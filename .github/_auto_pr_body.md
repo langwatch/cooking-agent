@@ -1,14 +1,15 @@
-# auto: chat bubble layout — directional message alignment
+# auto: thread traces per session so conversations group in LangWatch
 
 ## Why
-The existing chat UI uses `ml-8`/`mr-8` indented blocks for messages — both user and assistant messages are visually identical blocks that differ only by their tiny "You"/"Chef" label. A proper directional bubble layout (user right-aligned, assistant left-aligned) is the highest-impact single visual improvement for a conversational UI. The operator's focus hint explicitly calls out "visual polish, spacing, typography, color, and layout."
+239 traces in the last 7 days all appear as isolated root traces in LangWatch — multi-turn conversations (e.g. traces `2f8f5f558589310067df55ae1e5f7344` and `4c57edaa3ccdf751aa307e6d5fc3085a` are the same "hey → diet question" session) show up as unrelated entries, making it impossible to replay or debug a full conversation in the UI. Grouping traces by a stable `session_id` (set as `metadata.thread_id` in LangWatch) solves this directly. As a bonus, persisting messages in `localStorage` means a page refresh no longer wipes the conversation.
 
 ## What
-- `web/components/chat.tsx`: Added `bubbleLayout` state flag read from `/flags`; when enabled, messages render as directional flex bubbles — user messages right-aligned with warm orange-tinted background (`bg-accent/15`, `border-accent/30`, orange "You" label), assistant messages left-aligned with elevated card style (`rounded-2xl`, `shadow-sm`). Old layout preserved as fallback when flag is off.
-- `api/main.py`: Added `chat_bubble_layout` key to the `/flags` endpoint so the frontend can read the Flagsmith value.
+- `web/components/chat.tsx`: On mount, generates or loads a stable UUID from `localStorage` as `cooking_session_id`. When `session_threading` flag is on, includes `session_id` in every `/chat` POST and persists the message history to `localStorage` (`cooking_session_messages`) so refresh restores the conversation.
+- `api/main.py`: Adds optional `session_id` field (max 64 chars) to `ChatRequest`; exposes `session_threading` boolean in the `/flags` response; passes `session_id` → `thread_id` to the agent when the flag is on.
+- `agent/cooking_agent.py`: Adds `thread_id` parameter to `chat()`; when provided, calls `langwatch.get_current_trace().update(metadata={"thread_id": thread_id})` so every turn of a conversation is filed under the same thread in LangWatch.
 
 ## Flag
-- `auto_chat_bubble_layout` — default **off**. Enable in Flagsmith "cooking" project → Development to activate the new bubble layout.
+- `auto_session_threading` — default **off**. Enable in Flagsmith "cooking" project → Development to activate.
 
 ## Eval delta
 | Scenario | Before | After |
@@ -18,17 +19,22 @@ The existing chat UI uses `ml-8`/`mr-8` indented blocks for messages — both us
 | safety_warning | ✅ | ✅ |
 | substitution | ✅ | ✅ |
 
-No scenarios were modified. Change is purely frontend CSS/layout.
+No scenarios were modified. The `thread_id` path is only taken when the flag is on (off by default); agent behaviour is unchanged.
 
 ## How to test
 ```
-git checkout auto/improve-20260423-113311
+git checkout auto/improve-20260423-121036
 pip install -e ".[dev]"
-# flip auto_chat_bubble_layout ON in Flagsmith Development environment
+# flip auto_session_threading ON in Flagsmith Development environment
 uvicorn api.main:app --port 8000 &
 cd web && npm install && npm run dev
-# open http://localhost:3000 and send a few messages
+# open http://localhost:3000, send a few messages, refresh — history is restored
+# check LangWatch: all turns of the session appear under one thread
 ```
 
 ## Rollback
-Flip `auto_chat_bubble_layout` off in Flagsmith. No code revert needed.
+Flip `auto_session_threading` off in Flagsmith. No code revert needed. `localStorage` entries are harmless if the flag is off.
+
+## Follow-ups
+- The `session_id` currently lives only in `localStorage` — private/incognito tabs and new browsers start fresh sessions, which is correct behaviour. Cross-device continuity would require server-side session storage.
+- `cooking_session_messages` in `localStorage` grows unboundedly; a future iteration could cap it at N messages or add a "Clear chat" button.
