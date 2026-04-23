@@ -7,6 +7,14 @@ set -euo pipefail
 echo "=== installing claude code ==="
 npm i -g @anthropic-ai/claude-code@latest
 
+echo "=== pre-installing @langwatch/mcp-server ==="
+# .mcp.json spawns the server via `npx -y @langwatch/mcp-server` (the format
+# LangWatch docs prescribe). On a cold CI runner that npx takes ~20s to
+# download, which blows past Claude Code's MCP init timeout — the server
+# never registers and every tool appears missing. Pre-installing globally
+# makes npx resolve the package locally and start in <1s; no config change.
+npm i -g @langwatch/mcp-server@latest
+
 echo "=== installing rogeriochaves/skills ==="
 # -y on the skills subcommand auto-accepts the "select skills" picker; without
 # it CI gets an EOF'd interactive prompt and silently installs zero skills.
