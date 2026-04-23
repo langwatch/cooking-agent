@@ -68,10 +68,14 @@ export default function Chat() {
     setMessages((m) => [...m, { role: "user", content: text }]);
     setLoading(true);
     try {
+      // `messages` still holds the conversation *before* the current user turn
+      // (React state update above is async). Send it as history so the backend
+      // can provide full conversation context when auto_conversation_history is on.
+      const history = messages.map((m) => ({ role: m.role, content: m.content }));
       const res = await fetch(`${API_URL}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: messageWithPrefs, tier }),
+        body: JSON.stringify({ message: messageWithPrefs, tier, history }),
       });
       if (!res.ok) {
         const body = await res.text();

@@ -5,7 +5,9 @@ from __future__ import annotations
 import langwatch
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
+from openai import OpenAI
 
+from agent.flags import load as load_flags
 from agent.models import DEFAULT_TIER, model_for_tier
 
 SYSTEM_PROMPT = """You are a world-class home-cooking assistant.
@@ -22,20 +24,64 @@ If the user's request is unsafe (raw meat to a pregnant person, ingredient confl
 Never invent ingredients or claim a recipe exists if it doesn't — say you're improvising.
 """
 
+# Additional instruction injected when auto_safety_check_enhanced flag is on.
+_SAFETY_ENHANCED_INSTRUCTION = """
+When you detect a food-safety risk (e.g. raw/undercooked protein for a vulnerable person,
+cross-contamination, dangerous ingredient combinations), begin your entire response with:
+
+**Safety note:** <one-sentence summary of the risk>
+
+Then provide a safe alternative or adjusted recipe.
+"""
+
+# Additional rule appended when auto_dietary_safe_substitutions flag is on.
+_DIETARY_SAFE_SUBSTITUTIONS_ADDENDUM = (
+    "Dietary-safety rule — applies to the ENTIRE response (recipe title, ingredients, "
+    "optional garnishes, AND substitutions): every ingredient you name must comply with "
+    "ALL dietary restrictions the user has stated. Specific rules:\n"
+    "- Nut-free / nut-allergic user: never include tree nuts, peanuts, or ANY product derived "
+    "from them. Coconut is classified as a tree nut under FDA allergen rules — this means "
+    "coconut milk, coconut cream, coconut aminos, coconut flour, desiccated coconut, and "
+    "similar coconut-derived ingredients are ALL off-limits. Do not build the recipe around "
+    "coconut; do not list coconut aminos as a tamari substitute. Use coconut-free alternatives "
+    "(e.g. extra vegetable broth to thin sauces, or additional tamari with a splash of water).\n"
+    "- Gluten-free user: never list soy sauce, wheat, barley, rye, or any gluten-containing "
+    "item anywhere in the response, not even as a 'not gluten-free' option.\n"
+    "- Vegan user: never list meat, fish, dairy, eggs, or honey.\n"
+    "If any ingredient or substitution would violate a stated restriction, omit it entirely "
+    "rather than listing it with a caveat or parenthetical note."
+)
+
 
 class CookingAgent:
     def __init__(self, tier: str = DEFAULT_TIER):
         self.tier = tier
         self.model_id = model_for_tier(tier)
+        flags = load_flags()
+        prompt = SYSTEM_PROMPT
+        if flags.is_on("auto_safety_check_enhanced", default=False):
+            prompt = prompt + _SAFETY_ENHANCED_INSTRUCTION
+        if flags.is_on("auto_dietary_safe_substitutions", default=False):
+            prompt = prompt.rstrip() + "\n" + _DIETARY_SAFE_SUBSTITUTIONS_ADDENDUM + "\n"
         self._agent = Agent(
             model=OpenAIChat(id=self.model_id),
             description="World-class home-cooking assistant.",
-            instructions=SYSTEM_PROMPT,
+            instructions=prompt,
             markdown=True,
         )
 
     @langwatch.trace(name="cooking_agent.chat")
-    def chat(self, message: str) -> str:
+    def chat(self, message: str, history: list[dict] | None = None) -> str:
+        if history:
+            # Multi-turn path: build full OpenAI messages array with conversation history.
+            # Uses the raw OpenAI client so history is sent verbatim without Agno's
+            # in-memory session accumulating across requests.
+            client = OpenAI()
+            messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+            messages.extend({"role": h["role"], "content": h["content"]} for h in history)
+            messages.append({"role": "user", "content": message})
+            resp = client.chat.completions.create(model=self.model_id, messages=messages)
+            return resp.choices[0].message.content or ""
         response = self._agent.run(message)
         return response.content or ""
 

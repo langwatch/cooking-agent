@@ -39,9 +39,15 @@ def _get_agent(tier: str):
     return _agent_cache[tier]
 
 
+class HistoryMessage(BaseModel):
+    role: str = Field(..., pattern="^(user|assistant)$")
+    content: str = Field(..., min_length=1, max_length=4000)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
     tier: str = Field("mid", pattern="^(cheap|mid|premium)$")
+    history: list[HistoryMessage] = Field(default_factory=list, max_length=50)
 
 
 class ChatResponse(BaseModel):
@@ -67,6 +73,13 @@ def chat(req: ChatRequest):
     flags = load_flags()
     if not flags.cooking_agent_enabled:
         raise HTTPException(status_code=503, detail="cooking_agent_enabled flag is OFF")
-    agent = _get_agent(req.tier)
-    reply = agent.chat(req.message)
+    if flags.is_on("auto_conversation_history", default=False) and req.history:
+        # Fresh agent per request: avoids cross-user history contamination and
+        # passes the client-supplied history so follow-up messages get full context.
+        agent = build_agent(tier=req.tier)
+        history = [{"role": h.role, "content": h.content} for h in req.history]
+        reply = agent.chat(req.message, history=history)
+    else:
+        agent = _get_agent(req.tier)
+        reply = agent.chat(req.message)
     return ChatResponse(reply=reply, tier=req.tier)
