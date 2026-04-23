@@ -1,45 +1,39 @@
-# auto: add dietary preference chips to chat UI
+# auto: fix inconsistent ingredient quantity measurements in recipes
 
 ## Why
-40%+ of recent traces show users explicitly typing dietary restrictions ("vegan gluten-free nut-free") in every single message — pure repetitive friction. The Flagsmith flag `auto_dietary_pref_chips` was created by a prior iterator run but never wired to any code. This PR implements the feature: a row of toggle chips (Vegan, Gluten-Free, Nut-Free, Dairy-Free) that persist across the session and auto-inject the selected preferences into each outgoing message. Trace evidence: e.g., `6f97e35c`, `64ca9586`, `7655b4d6`, `0bb3aee3`, `4532ec17`.
+The `basic_weeknight_recipe` scenario was failing because the agent output contradictory measurements for the same ingredient — e.g. `40 g (about 4 packed cups / 120 g) baby spinach`, where 40 g of baby spinach is roughly 1.5 cups (not 4 cups), and 40 g ≠ 120 g. The judge correctly rejected this as "unclear ingredient quantities". The root cause: the system prompt says only "List ingredients with quantities" — no rule about measurement accuracy or cross-unit consistency. Trace `cff64b4ed48078438e97b4d1f34a4a2b` shows the exact failing output from the live agent.
 
 ## What
-- `web/components/chat.tsx`: on mount, fetches `/flags` from the backend; if `dietary_pref_chips` is true, renders a row of pill-shaped toggle chips below the model-tier selector. Active chips highlight in the accent colour. When the user sends a message, selected prefs are appended to the text sent to the agent (e.g. `"pasta recipe [dietary: Vegan, Gluten-Free]"`). The displayed bubble shows the raw user text without the injected suffix. Input placeholder also updates to reflect active preferences.
-- `api/main.py`: adds a `GET /flags` endpoint that reads Flagsmith flag values and returns them as JSON, so the frontend can query flag state without a JS SDK or exposed env vars.
+- `agent/cooking_agent.py`: added `_CONSISTENT_MEASUREMENTS_INSTRUCTION` string constant and wired it into `CookingAgent.__init__` behind the `auto_consistent_ingredient_quantities` flag. When enabled, the instruction explicitly requires that all unit representations for the same ingredient be accurate conversions of the same amount, with a concrete counter-example drawn from the actual failure case.
 
 ## Flag
-- `auto_dietary_pref_chips` — default **off**. Enable in Flagsmith "cooking" project → Development to activate.
+- `auto_consistent_ingredient_quantities` — default **off**. Enable in Flagsmith "cooking" project → Development to activate.
 
 ## Eval delta
-| Scenario | Before | After |
+| Scenario | Before | After (flag on) |
 |---|---|---|
-| basic_weeknight_recipe | ✅ 4/4 | ✅ 4/4 |
+| basic_weeknight_recipe | ❌ 3/4 criteria | ✅ 4/4 criteria |
 | dietary_constraints | ✅ 4/4 | ✅ 4/4 |
+| safety_warning | ✅ 4/4 | ✅ 4/4 |
 | substitution | ✅ 4/4 | ✅ 4/4 |
 
-No scenarios were modified. All three pass before and after.
+**Before**: 3/4 scenarios pass (75%). **After flag on**: 4/4 pass (100%).
 
-## Screenshots
-
-| Before (flag off — no chips) | After (flag on — chips visible) |
-|---|---|
-| ![before](https://i.img402.dev/g9z7ziw6fh.jpg) | ![after](https://i.img402.dev/e19pb8jrdm.jpg) |
+No scenarios were modified or added — the same criteria, fully met.
 
 ## How to test
 ```
 git checkout <this-branch>
 pip install -e ".[dev]"
-cd web && npm install && npm run dev &
-uvicorn api.main:app --port 8000 &
-# then flip auto_dietary_pref_chips ON in Flagsmith to see the chips appear
-# try: select "Vegan" + "Gluten-Free", type "give me a pasta recipe", send
-# confirm the agent receives the dietary context and respects it
+# Enable auto_consistent_ingredient_quantities in Flagsmith → Development
 pytest -v tests/ -m agent_test
+# Expect 4/4 pass; basic_weeknight_recipe should now pass
+# Flip flag off to verify 3/4 pass (regression to baseline)
 ```
 
 ## Rollback
-Flip `auto_dietary_pref_chips` off in Flagsmith. No code revert needed — the UI silently hides the chips row when the flag is off.
+Flip `auto_consistent_ingredient_quantities` off in Flagsmith. No code revert needed.
 
 ## Follow-ups
-- Candidate 2: Clickable example prompts in empty state (replace single static hint with 3–4 clickable suggestions).
-- Candidate 3: Copy-to-clipboard button on assistant message cards (recipe text is long; one-click copy is high-value QOL).
+- Fix multi-turn conversation path (`chat()` with `history`) using raw `SYSTEM_PROMPT` instead of the flag-modified `prompt`, which silently drops safety and dietary addenda for multi-turn users.
+- Add a scenario that explicitly checks measurement accuracy to prevent regressions in this class of failure.

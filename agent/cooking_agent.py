@@ -34,6 +34,18 @@ cross-contamination, dangerous ingredient combinations), begin your entire respo
 Then provide a safe alternative or adjusted recipe.
 """
 
+# Additional rule injected when auto_consistent_ingredient_quantities flag is on.
+_CONSISTENT_MEASUREMENTS_INSTRUCTION = (
+    "Ingredient quantity rule: When you list an ingredient with both a weight and a "
+    "volume (e.g. '200 g (7 oz)' or '1 cup (240 ml)'), both measurements MUST be "
+    "accurate conversions of the exact same amount — never approximate one to a value "
+    "that would imply a different quantity. If you are not confident in the conversion, "
+    "list a single measurement only. Clarity beats completeness. "
+    "Example of a WRONG entry: '40 g (about 4 packed cups / 120 g) baby spinach' — "
+    "40 g of spinach is roughly 1.5 cups, not 4 cups, and 40 g ≠ 120 g. "
+    "Correct: '40 g (about 1½ cups) baby spinach' or simply '40 g baby spinach'."
+)
+
 # Additional rule appended when auto_dietary_safe_substitutions flag is on.
 _DIETARY_SAFE_SUBSTITUTIONS_ADDENDUM = (
     "Dietary-safety rule — applies to the ENTIRE response (recipe title, ingredients, "
@@ -59,6 +71,8 @@ class CookingAgent:
         self.model_id = model_for_tier(tier)
         flags = load_flags()
         prompt = SYSTEM_PROMPT
+        if flags.is_on("auto_consistent_ingredient_quantities", default=False):
+            prompt = prompt.rstrip() + "\n" + _CONSISTENT_MEASUREMENTS_INSTRUCTION + "\n"
         if flags.is_on("auto_safety_check_enhanced", default=False):
             prompt = prompt + _SAFETY_ENHANCED_INSTRUCTION
         if flags.is_on("auto_dietary_safe_substitutions", default=False):
