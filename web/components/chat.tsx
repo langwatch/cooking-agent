@@ -2,11 +2,11 @@
 
 import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
-import { Send, Loader2, ChefHat, Sparkles } from "lucide-react";
+import { Send, Loader2, ChefHat, Sparkles, ImagePlus, X } from "lucide-react";
 import { cn, API_URL } from "@/lib/utils";
 import { RecipeCard } from "@/components/recipe-card";
 
-type Message = { role: "user" | "assistant"; content: string };
+type Message = { role: "user" | "assistant"; content: string; image?: string };
 type Tier = "cheap" | "mid" | "premium";
 
 const DIETARY_CHIPS: { label: string; value: string; emoji: string }[] = [
@@ -37,11 +37,20 @@ function CookingDots() {
   );
 }
 
-function UserBubble({ content }: { content: string }) {
+function UserBubble({ content, image }: { content: string; image?: string }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[80%] rounded-2xl rounded-tr-sm px-4 py-2.5 bg-accent/15 border border-accent/25 text-foreground text-sm leading-relaxed">
-        {content}
+      <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-accent/15 border border-accent/25 text-foreground text-sm leading-relaxed overflow-hidden">
+        {image && (
+          <img
+            src={image}
+            alt="user attachment"
+            className="w-full max-h-48 object-cover"
+          />
+        )}
+        {content && (
+          <div className="px-4 py-2.5">{content}</div>
+        )}
       </div>
     </div>
   );
@@ -92,6 +101,9 @@ export default function Chat() {
   const [sessionThreading, setSessionThreading] = useState(false);
   const [sessionId, setSessionId] = useState<string>("");
   const [activePrefs, setActivePrefs] = useState<Set<string>>(new Set());
+  const [multimodalEnabled, setMultimodalEnabled] = useState(false);
+  const [pendingImage, setPendingImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -104,6 +116,7 @@ export default function Chat() {
         setChipsEnabled(!!data?.dietary_pref_chips);
         setBubbleLayout(!!data?.chat_bubble_layout);
         setPremiumUI(!!data?.premium_ui);
+        setMultimodalEnabled(!!data?.multimodal_images);
         const threading = !!data?.session_threading;
         setSessionThreading(threading);
         if (threading) {
@@ -123,6 +136,13 @@ export default function Chat() {
     return () => clearTimeout(t);
   }, [loading]);
 
+  function handleImageFile(file: File) {
+    if (!file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = (e) => setPendingImage(e.target?.result as string);
+    reader.readAsDataURL(file);
+  }
+
   function togglePref(value: string) {
     setActivePrefs((prev) => {
       const next = new Set(prev);
@@ -134,14 +154,19 @@ export default function Chat() {
 
   async function send(overrideText?: string) {
     const text = (overrideText ?? input).trim();
-    if (!text || loading) return;
+    if ((!text && !pendingImage) || loading) return;
     setError(null);
     setInput("");
+    const imageToSend = pendingImage;
+    setPendingImage(null);
 
     const prefContext = activePrefs.size > 0 ? ` [dietary: ${[...activePrefs].join(", ")}]` : "";
-    const messageWithPrefs = text + prefContext;
+    const messageWithPrefs = (text || "What can I cook with this?") + prefContext;
 
-    const nextMessages: Message[] = [...messages, { role: "user", content: text }];
+    const nextMessages: Message[] = [
+      ...messages,
+      { role: "user", content: text || "📷 Image attached", image: imageToSend ?? undefined },
+    ];
     setMessages(nextMessages);
     setLoading(true);
     try {
@@ -149,6 +174,9 @@ export default function Chat() {
       const body: Record<string, unknown> = { message: messageWithPrefs, tier, history };
       if (sessionThreading && sessionId) {
         body.session_id = sessionId;
+      }
+      if (imageToSend) {
+        body.image = imageToSend;
       }
       const res = await fetch(`${API_URL}/chat`, {
         method: "POST",
@@ -271,7 +299,7 @@ export default function Chat() {
 
           {messages.map((m, i) =>
             m.role === "user" ? (
-              <UserBubble key={i} content={m.content} />
+              <UserBubble key={i} content={m.content} image={m.image} />
             ) : (
               <div key={i} className="flex flex-col gap-1">
                 <span className="text-[10px] text-muted-foreground/60 pl-1 flex items-center gap-1">
@@ -307,30 +335,78 @@ export default function Chat() {
         </div>
 
         {/* Input */}
-        <form
-          onSubmit={(e) => { e.preventDefault(); send(); }}
-          className="mt-3 flex gap-2"
-        >
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={
-              activePrefs.size > 0
-                ? `Recipe with ${[...activePrefs].join(", ")}…`
-                : "Ask for a recipe, substitution, or technique…"
-            }
-            className="flex-1 bg-card border border-border/60 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-accent/50 placeholder:text-muted-foreground/50 transition-colors"
-            disabled={loading}
-          />
-          <button
-            type="submit"
-            disabled={loading || !input.trim()}
-            className="bg-accent text-background rounded-xl px-4 py-2.5 font-medium disabled:opacity-40 flex items-center gap-2 text-sm hover:bg-accent/90 transition-colors shrink-0"
+        <div className="mt-3 flex flex-col gap-1.5">
+          {/* Image preview strip */}
+          {pendingImage && (
+            <div className="flex items-center gap-2 px-1">
+              <img
+                src={pendingImage}
+                alt="attachment preview"
+                className="h-14 w-14 rounded-lg object-cover border border-border/60"
+              />
+              <span className="text-xs text-muted-foreground flex-1">Image attached</span>
+              <button
+                type="button"
+                onClick={() => setPendingImage(null)}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Remove image"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+          <form
+            onSubmit={(e) => { e.preventDefault(); send(); }}
+            className="flex gap-2"
           >
-            <Send size={15} />
-            <span className="hidden sm:inline">Send</span>
-          </button>
-        </form>
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageFile(f); e.target.value = ""; }}
+            />
+            {/* Image attach button (only when flag is on) */}
+            {multimodalEnabled && (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={loading}
+                title="Attach a photo (fridge, dish, ingredients)"
+                className={cn(
+                  "rounded-xl px-3 py-2.5 border transition-colors shrink-0",
+                  pendingImage
+                    ? "border-accent/50 bg-accent/10 text-accent"
+                    : "border-border/60 bg-card text-muted-foreground hover:border-accent/40 hover:text-foreground"
+                )}
+              >
+                <ImagePlus size={16} />
+              </button>
+            )}
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={
+                pendingImage
+                  ? "Add a note or just hit Send…"
+                  : activePrefs.size > 0
+                  ? `Recipe with ${[...activePrefs].join(", ")}…`
+                  : "Ask for a recipe, substitution, or technique…"
+              }
+              className="flex-1 bg-card border border-border/60 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-accent/50 placeholder:text-muted-foreground/50 transition-colors"
+              disabled={loading}
+            />
+            <button
+              type="submit"
+              disabled={loading || (!input.trim() && !pendingImage)}
+              className="bg-accent text-background rounded-xl px-4 py-2.5 font-medium disabled:opacity-40 flex items-center gap-2 text-sm hover:bg-accent/90 transition-colors shrink-0"
+            >
+              <Send size={15} />
+              <span className="hidden sm:inline">Send</span>
+            </button>
+          </form>
+        </div>
       </div>
     );
   }
