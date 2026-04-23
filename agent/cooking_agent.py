@@ -6,6 +6,7 @@ import langwatch
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 
+from agent.flags import load as load_flags
 from agent.models import DEFAULT_TIER, model_for_tier
 
 SYSTEM_PROMPT = """You are a world-class home-cooking assistant.
@@ -22,15 +23,29 @@ If the user's request is unsafe (raw meat to a pregnant person, ingredient confl
 Never invent ingredients or claim a recipe exists if it doesn't — say you're improvising.
 """
 
+# Additional instruction injected when auto_safety_check_enhanced flag is on.
+_SAFETY_ENHANCED_INSTRUCTION = """
+When you detect a food-safety risk (e.g. raw/undercooked protein for a vulnerable person,
+cross-contamination, dangerous ingredient combinations), begin your entire response with:
+
+**Safety note:** <one-sentence summary of the risk>
+
+Then provide a safe alternative or adjusted recipe.
+"""
+
 
 class CookingAgent:
     def __init__(self, tier: str = DEFAULT_TIER):
         self.tier = tier
         self.model_id = model_for_tier(tier)
+        flags = load_flags()
+        instructions = SYSTEM_PROMPT
+        if flags.is_on("auto_safety_check_enhanced", default=False):
+            instructions = SYSTEM_PROMPT + _SAFETY_ENHANCED_INSTRUCTION
         self._agent = Agent(
             model=OpenAIChat(id=self.model_id),
             description="World-class home-cooking assistant.",
-            instructions=SYSTEM_PROMPT,
+            instructions=instructions,
             markdown=True,
         )
 
