@@ -15,25 +15,22 @@ echo "=== installing img402/skills (screenshot hosting for UI iterations) ==="
 # Free tier: <1MB, 7-day retention, no API key needed. See https://img402.dev
 npx -y skills add img402/skills -g || echo "img402 skills install failed; continuing"
 
-echo "=== writing ~/.claude/mcp.json ==="
-mkdir -p "$HOME/.claude"
-if [ -f .claude/mcp.json ]; then
-  cp .claude/mcp.json "$HOME/.claude/mcp.json"
-else
-  cat > "$HOME/.claude/mcp.json" <<JSON
-{
-  "mcpServers": {
-    "langwatch": {
-      "type": "http",
-      "url": "https://app.langwatch.ai/mcp",
-      "headers": {
-        "Authorization": "Bearer ${LANGWATCH_API_KEY}"
-      }
-    }
-  }
-}
-JSON
+echo "=== MCP preflight ==="
+# Project-scoped MCP lives in .mcp.json at the repo root; Claude Code
+# auto-discovers it. Verify langwatch tools actually load before the
+# iterator starts — a silent MCP failure wastes the full 40-min budget
+# and produces a useless "mcp unavailable" PR.
+if [ -z "${LANGWATCH_API_KEY:-}" ]; then
+  echo "::error::LANGWATCH_API_KEY is empty; langwatch MCP cannot start. @aryansharma28" >&2
+  exit 1
 fi
+mcp_probe=$(timeout 90 claude -p "output only 'OK' if you have a tool named mcp__langwatch__search_traces, otherwise output only 'MISSING'" \
+  --permission-mode bypassPermissions --output-format text 2>&1 | tail -1)
+if [ "$mcp_probe" != "OK" ]; then
+  echo "::error::langwatch MCP did not load (probe returned: $mcp_probe). Check .mcp.json and LANGWATCH_API_KEY. @aryansharma28" >&2
+  exit 1
+fi
+echo "langwatch MCP loaded OK"
 
 echo "=== claude version ==="
 claude --version || true
