@@ -5,6 +5,7 @@ from __future__ import annotations
 import langwatch
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
+from openai import OpenAI
 
 from agent.models import DEFAULT_TIER, model_for_tier
 
@@ -35,7 +36,17 @@ class CookingAgent:
         )
 
     @langwatch.trace(name="cooking_agent.chat")
-    def chat(self, message: str) -> str:
+    def chat(self, message: str, history: list[dict] | None = None) -> str:
+        if history:
+            # Multi-turn path: build full OpenAI messages array with conversation history.
+            # Uses the raw OpenAI client so history is sent verbatim without Agno's
+            # in-memory session accumulating across requests.
+            client = OpenAI()
+            messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+            messages.extend({"role": h["role"], "content": h["content"]} for h in history)
+            messages.append({"role": "user", "content": message})
+            resp = client.chat.completions.create(model=self.model_id, messages=messages)
+            return resp.choices[0].message.content or ""
         response = self._agent.run(message)
         return response.content or ""
 
