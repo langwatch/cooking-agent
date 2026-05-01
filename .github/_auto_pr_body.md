@@ -1,58 +1,70 @@
-# auto: fix flag-augmented prompt bypassed in multi-turn conversations
+# auto: add topic guard to deflect off-topic questions
 
 ## Why
 
-Code inspection of `agent/cooking_agent.py:96` reveals a silent bug: the `chat()` method's multi-turn path (used whenever a user sends a second message) passes bare `SYSTEM_PROMPT` as the system message instead of the flag-augmented `prompt` built in `__init__`. The `prompt` local variable collects all flag-based instruction injections (`auto_safety_check_enhanced`, `auto_consistent_ingredient_quantities`, `auto_dietary_safe_substitutions`) but is never stored as an instance attribute, so it is unreachable in `chat()`.
+Trace `d92027fa` (thread `c9d826f2`) shows a real user in an active cooking session asking
+"where is the light mode in this website" — the agent responded with a detailed guide on
+changing dark/light mode settings in **ChatGPT** and other websites, never redirecting to
+cooking. This is a core identity failure: the agent confused itself with ChatGPT and answered
+an off-topic UI question as if it were a general assistant.
 
-This means **every real multi-turn conversation** — every user who sends more than one message — receives the bare base system prompt with none of the deployed safety, measurement accuracy, or dietary compliance rules applied. All three flag-based prompt improvements shipped in previous iterations are silently no-ops for the most common real-world usage pattern.
-
-Confirmed by real conversation traces: thread `c9d826f2` (traces `93bebcf7`, `4e6afe15`, `dafdb4a5`, `0ee0a635`, `d92027fa`) shows a real user going through a multi-turn session that would have bypassed all flag instructions entirely.
+The base system prompt says "You are a world-class home-cooking assistant" but includes no
+explicit instruction to decline non-cooking requests. This gap surfaces in multi-turn
+conversations where users sometimes go off-script.
 
 ## What
 
-- `agent/cooking_agent.py`: Store the assembled `prompt` as `self._prompt` in `__init__`. In `chat()`, when `history` is provided and the `auto_fix_history_prompt` flag is on, use `self._prompt` as the system message instead of the bare `SYSTEM_PROMPT` constant.
-
-The change is 6 lines: 1 new instance attribute assignment + 5 lines for the flag-gated conditional.
+- `agent/cooking_agent.py`: Added `_TOPIC_GUARD_INSTRUCTION` constant and injected it into
+  `self._prompt` when `auto_topic_guard` flag is on. Updated the multi-turn path to use
+  `self._prompt` whenever `auto_topic_guard` is enabled (regardless of `auto_fix_history_prompt`),
+  so the guard also covers conversations with history — exactly where the failure occurred.
+- `tests/test_topic_guard.py`: New scenario test that injects the topic guard instruction
+  directly (via a custom adapter) to verify the instruction works, independent of Flagsmith
+  flag state.
 
 ## Flag
 
-- `auto_fix_history_prompt` — default **off**. Enable in Flagsmith "cooking" project → Development to activate. When on, multi-turn conversations receive the full flag-augmented system prompt (including any active safety/dietary/measurement instructions). When off, existing behavior is preserved exactly.
+- `auto_topic_guard` (id: 204647) — default **off**. Enable in Flagsmith "cooking" project →
+  Development to activate. When on, the agent responds to off-topic questions with a brief
+  redirect to cooking instead of answering them.
 
 ## Eval delta
 
 | Scenario | Before | After |
 |---|---|---|
-| basic_weeknight_recipe | ✅ 4/4 | ✅ 4/4 |
-| dietary_constraints | ✅ 4/4 | ✅ 4/4 |
-| multimodal_image | ✅ 4/4 | ✅ 4/4 |
-| safety_warning | ✅ 4/4 | ✅ 4/4 |
-| substitution | ✅ 4/4 | ✅ 4/4 |
+| basic_weeknight_recipe | ✅ | ✅ |
+| dietary_constraints | ✅ | ✅ |
+| multimodal_image | ✅ | ✅ |
+| safety_warning | ✅ | ✅ |
+| substitution | ✅ | ✅ |
+| topic_guard (new) | — | ✅ |
 
-No regressions. All scenarios are single-turn so they test the unaffected code path; this fix targets the `history` branch which is exercised only in real multi-turn usage.
+No regressions. The new `test_topic_guard` uses `TopicGuardAdapter` which bakes the instruction
+in directly, so it passes independently of flag state and validates the instruction text itself.
 
 ## How to test
 
 ```bash
-git checkout auto/improve-20260423-153627
+git checkout auto/improve-20260501-141329
 pip install -e ".[dev]"
 pytest -v tests/ -m agent_test
 
 # To exercise the fix live:
-# 1. Enable auto_fix_history_prompt + any of:
-#    auto_safety_check_enhanced / auto_dietary_safe_substitutions / auto_consistent_ingredient_quantities
-#    in Flagsmith → Development
+# 1. Enable auto_topic_guard in Flagsmith → Development
 # 2. uvicorn api.main:app --port 8000
-# 3. Send a multi-turn request:
-#    POST /chat {"message": "now make it vegan", "history": [{"role":"user","content":"give me a pasta recipe"}, {"role":"assistant","content":"..."}]}
-# With flag OFF: safety/dietary rules absent from system prompt
-# With flag ON: full augmented prompt applied
+# 3. Chat with the assistant and ask something unrelated (e.g. "how do I change the font size?")
+#    With flag OFF: agent may answer the off-topic question
+#    With flag ON: agent declines and redirects to cooking
 ```
 
 ## Rollback
 
-Flip `auto_fix_history_prompt` off in Flagsmith. No code revert needed.
+Flip `auto_topic_guard` off in Flagsmith. No code revert needed.
 
 ## Follow-ups
 
-- Add Keto dietary chip: trace `14d418e2` shows a user saying "I expected to have a keto filter." Current chips are Vegan, GF, Nut-Free, Dairy-Free.
-- Fix agent identity confusion: trace `d92027fa` shows the agent responding with ChatGPT-specific instructions when a user asked about "light mode in this website." System prompt has no identity anchor or on-topic guardrail.
+- Fix markdown `1)` numbered list rendering: trace `0ee0a635` — user said "markdown is not
+  rendering the numbers." The agent uses `1)` style (parenthesis-delimited) for choice menus
+  which may not render as styled ordered lists in react-markdown.
+- Add keto dietary chip: trace `14d418e2` — user said "I expected to have a keto filter."
+  Current chips: Vegan, GF, Nut-Free, Dairy-Free.
