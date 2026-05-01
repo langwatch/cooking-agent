@@ -46,6 +46,20 @@ _CONSISTENT_MEASUREMENTS_INSTRUCTION = (
     "Correct: '40 g (about 1½ cups) baby spinach' or simply '40 g baby spinach'."
 )
 
+# Instruction injected when auto_topic_guard flag is on.
+# Prevents the agent from answering questions unrelated to cooking.
+# Evidence: trace d92027fa — agent responded to "where is the light mode in this
+# website" with ChatGPT UI instructions instead of redirecting to cooking.
+_TOPIC_GUARD_INSTRUCTION = (
+    "Scope restriction: You are a cooking-only assistant. If a user asks about "
+    "anything unrelated to cooking, food, recipes, nutrition, ingredients, or kitchen "
+    "techniques (for example: app settings, website UI, software help, general trivia, "
+    "or any non-food topic), do NOT answer the off-topic question. "
+    "Instead, respond with a single short sentence acknowledging their message and "
+    "explaining that you can only help with cooking and food, then invite them to ask "
+    "a cooking question. Do not attempt to help with the off-topic request in any way."
+)
+
 # Additional rule appended when auto_dietary_safe_substitutions flag is on.
 _DIETARY_SAFE_SUBSTITUTIONS_ADDENDUM = (
     "Dietary-safety rule — applies to the ENTIRE response (recipe title, ingredients, "
@@ -77,6 +91,8 @@ class CookingAgent:
             prompt = prompt + _SAFETY_ENHANCED_INSTRUCTION
         if flags.is_on("auto_dietary_safe_substitutions", default=False):
             prompt = prompt.rstrip() + "\n" + _DIETARY_SAFE_SUBSTITUTIONS_ADDENDUM + "\n"
+        if flags.is_on("auto_topic_guard", default=False):
+            prompt = prompt.rstrip() + "\n" + _TOPIC_GUARD_INSTRUCTION + "\n"
         self._prompt = prompt
         self._agent = Agent(
             model=OpenAIChat(id=self.model_id),
@@ -94,11 +110,9 @@ class CookingAgent:
             # Uses the raw OpenAI client so history is sent verbatim without Agno's
             # in-memory session accumulating across requests.
             flags = load_flags()
-            system_content = (
-                self._prompt
-                if flags.is_on("auto_fix_history_prompt", default=False)
-                else SYSTEM_PROMPT
-            )
+            use_augmented = flags.is_on("auto_fix_history_prompt", default=False) or \
+                flags.is_on("auto_topic_guard", default=False)
+            system_content = self._prompt if use_augmented else SYSTEM_PROMPT
             client = OpenAI()
             messages: list[dict] = [{"role": "system", "content": system_content}]
             messages.extend({"role": h["role"], "content": h["content"]} for h in history)
